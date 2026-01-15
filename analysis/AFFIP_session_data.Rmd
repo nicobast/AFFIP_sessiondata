@@ -1,0 +1,775 @@
+---
+title: "AFFIP session data"
+author: "Nico Bast"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    number_sections: true
+    theme: cerulean
+    code_folding: hide
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#required packages
+require(ggplot2)
+require(kableExtra) #tables
+require(data.table) #rbindlist
+require(cluster) #clustering
+
+
+
+#set theme
+theme_set(theme_bw())
+
+```
+
+Fragestellung - spezifische Hypothesen ausstehend:
+Cluster der Therapieziele identifizieren - Verlauf der Probanden
+
+1.	Bildet sich der theoretische Ansatz des A-FFIP-Manuals mit den einzelne Förderbereichen sowie den Übungen von leicht bis Experte auch in der praktischen Arbeit mit den einzelnen Kindern ab? D.h. lernen die Kinder wie angenommen durch die Therapie aufeinander aufbauend über die entsprechenden Übungen?
+
+2.	Mit welchen Förderbereichen wird begonnen? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?
+
+3.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?
+
+# data overview and preparation
+
+- loads the data
+- derives relevant data points
+- describes the data
+
+```{r load data}
+
+#session data --> multiple rows per participant per session
+project_folder<-"C:/Users/nico/Nextcloud/data_AFFIP/rct_data"
+session_path<-paste0(project_folder,'/export_session_20230728.csv')
+df_session<-read.csv(session_path)
+
+#therapy data --> one row per participant per session
+therapy_path<-paste0(project_folder,'/export_therapy_20230728.csv') #therapy session info - per session
+df_therapy<-read.csv(therapy_path)
+
+#gender and age in months
+screen_path<-paste0(project_folder,'/export_screen_20230728.csv')
+df_screen<-read.csv(screen_path) #master merge file
+df_screen<-df_screen[,names(df_screen) %in% c('centno','scrnno','gender','agedemo','age_y','age_m')]
+
+#IQ
+wppsi_path<-paste0(project_folder,'/export_wppsi_20240916.csv')
+df_wppsi<-read.csv(wppsi_path)
+bayley_path<-paste0(project_folder,'/export_bayley_20240916.csv')
+df_bayley<-read.csv(bayley_path)
+
+#migration info
+rct_path<-paste0(project_folder,'/export_rct_20230728.csv') 
+df_rct<-read.csv(rct_path)
+
+#socioeconomic status
+ses_path<-paste0(project_folder,'/export_ses_20230728.csv') #socioeconomic status
+df_ses<-read.csv(ses_path)
+
+
+```
+
+```{r define IQ}
+
+#based on A-FFIP data preprocessing script
+
+
+#select relevant data
+df_wppsi <- df_wppsi[,names(df_wppsi) %in% c('centno', 'scrnno', 't', 'wppsi_ver','wppsidate',
+                                             'vtiq', 'htiq', 'vgiq', 'asiq', 'gsiq', 'ta_wppsi_mean',
+                                             'develop_age_w','verbal_iqdq_w','nonverbal_iqdq_w',
+                                             'wppsi_ver','wppsidate_d','wppsidate_m','wppsidate_y')]
+
+df_bayley<-df_bayley[,names(df_bayley) %in% c('centno','scrnno','t','baydate','develop_age',
+                                              'verbal_iqdq','nonverbal_iqdq',
+                                              'cognea','rezea','exprea')]
+
+#merge data
+df_iq<-merge(df_wppsi,df_bayley,by=c('centno','scrnno','t'),all.x=T,all.y=T)
+
+#merge chronological age
+df_age<-df_screen[,names(df_screen) %in% c('centno','scrnno','agedemo')]
+names(df_age)[3]<-'chronage'
+df_iq<-merge(df_iq,df_age,by=c('centno','scrnno'))
+
+#Testalter (historisch)
+#IQ estimate as test age /developmental age * 100
+#df_iq$test_age<-with(df_iq,ifelse(is.na(ta_wppsi_mean),develop_age,ta_wppsi_mean))
+df_iq$test_age<-with(df_iq,ifelse(is.na(develop_age_w),develop_age,develop_age_w))
+
+#langugae development - not aggregated
+df_iq$lang_dev<-df_iq$develop_age
+df_iq$lang_dev_w<-df_iq$chronage / 100 * df_iq$asiq
+
+#non-verbal IQ
+nonverbal_iq<-df_iq$cognea / df_iq$chronage * 100
+nonverbal_iq_w<-df_iq$htiq
+df_iq$nonverbal_iq<-ifelse(is.na(nonverbal_iq),nonverbal_iq_w,nonverbal_iq)
+
+#verbal IQ 
+verbal_iq<-((df_iq$exprea + df_iq$rezea) / 2) / df_iq$chronage * 100
+verbal_iq_w<-df_iq$vtiq
+df_iq$verbal_iq<-ifelse(is.na(verbal_iq),verbal_iq_w,verbal_iq)
+
+#full IQ 
+full_iq<-((df_iq$exprea + df_iq$rezea + df_iq$cognea) / 3) / df_iq$chronage * 100
+full_iq_w<-df_iq$gsiq
+df_iq$full_iq<-ifelse(is.na(full_iq),full_iq_w,full_iq)
+
+#full IQ - if nonverbal was measured with WPPSI_III and verbal with Bayley-III
+# --> recovers 12 full scale IQs (!)
+boolean_mixed<-!is.na(verbal_iq) & !is.na(nonverbal_iq_w)
+df_iq$full_iq[boolean_mixed]<-
+  ((df_iq$exprea[boolean_mixed]/df_iq$chronage[boolean_mixed] * 100) +
+  (df_iq$rezea[boolean_mixed]/df_iq$chronage[boolean_mixed] * 100) +
+  df_iq$htiq[boolean_mixed]) / 3
+  
+#developmental age
+develop_age<-(df_iq$exprea + df_iq$rezea + df_iq$cognea) / 3
+develop_age_w<-df_iq$chronage / 100 * df_iq$gsiq
+df_iq$develop_age<-develop_age
+df_iq$develop_age_w<-develop_age_w
+
+```
+
+
+## variable description
+
+Data should be limited to: 
+- Bezugsperson anwesend = 0 (ohne Bezugsperson)
+- Schwerpunkt = 2 (kindzentriert)
+- Setting = 1 (Einzeltherapie)
+- Diagnostiktermin = 0 (kein Diagnostiktermin)
+
+
+```{r variable description}
+
+#Bezugsperson anwesen
+table(df_therapy$thcg) %>%
+  kbl(caption = "thcg: Bezugsperson anwesend (0 = no, 1=yes)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+# --> inclusion only with 0
+
+#Schwerpunkt
+table(df_therapy$focus) %>%
+  kbl(caption = "focus: Bezugsperson anwesend (1 = Elternarbeit, 2 = Kind, 3 = Austausch / Umfeld)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+# 1 = Elternarbeit
+# 2 = Kind
+# 3 = Austausch / Umfeld
+
+#Setting
+table(df_therapy$set) %>%
+  kbl(caption = "set: Setting (1 = Einzel, 2 = Gruppe, 3 = Gespräch, 4 = Hospitation Kindergarten") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+# 1 = Einzel
+# 2 = Gruppe
+# 3 = Gespräch
+# 4 = Hospitation Kindergarten
+
+
+table(df_therapy$thcg,df_therapy$focus,df_therapy$set) %>%
+  kbl(caption = "Bezugsperson x Schwerpunkt x Setting",
+      col.names = c('Bezugsperson','Schwerpunkt','Setting','N')) %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+#Diagnostiktermin 
+table(df_therapy$diag) %>%
+  kbl(caption = "diag: Diagnostiktermin (0 = nein)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+# 0 = kein Diagnostiktermin
+
+```
+
+### number of aims per session
+
+- number of aims within the session
+- Es gibt keine Zielreihenfolge (Zielnummer definiert nicht die Priorität)
+
+```{r aims_per_session}
+
+#Ziel Nummer
+table(df_session$aim)  %>%
+  kbl(caption = "aim: Mindestanzhal von Zielen pro Sitzung (kummulativ)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+##-->  aim number within the session (3 = third of three aims)
+## 	
+```
+
+### additional variables
+
+- only consider aims that were actually trained (practex)
+- help (0) and achieve (2) could define an outcome
+
+```{r add_vars}
+
+#Übung durchgeführt
+table(df_session$practex) %>%
+  kbl(caption = "practex: Übung durchgeführt") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+    
+#Ausmaß Hilfestellung: 0 = ohne Hilfe, 1 = mit Hilfestellung, 2 = selbstständig
+table(df_session$help) %>%
+  kbl(caption = "help: Ausmaß Hilfestellung (0 = ohne Hilfe, 1 = mit Hilfestellung, 2 = selbstständig)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+#Zielebene gemeistert - 0= nein, 1 = teilweise, 2 = vollständig
+table(df_session$achieve) %>%
+  kbl(caption = "achieve: Zielebene gemeistert (0 = nein, 1 = teilweise, 2 = vollständig)") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+
+#if Übung durchgeführt, then: Übung variiert
+table(df_session$practvar)
+## --> currentlky not relevant
+
+#herausfordernde Verhaltensweisen gezeigt
+table(df_session$behave)
+
+
+```
+
+## merge data
+
+- merges df_session (session data, p.12ff) and df_therapy (therapy data, p1-12)
+- df_session: row per aim per session (n=27579)
+- df_therapy: row per session (n=4731)
+- adds an ID variable based on centno + scrnno
+
+```{r merge data}
+
+df_trial<-merge(df_session, df_therapy, 
+            by.x = c("centno", "scrnno", "sessno"), 
+            by.y= c("centno", "scrnno", "thsessno"))
+
+names(df_trial)
+
+#create IDs variable
+df_trial$id<-paste(df_trial$centno,df_trial$scrnno,sep='.')
+
+```
+
+- adds demographic data
+
+```{r adding demographic data}
+
+#adds agedemo, gender
+df_trial<-merge(df_trial,df_screen, by = c("centno", "scrnno"))
+
+#adds iq
+df_iq<-df_iq[df_iq$t==1,names(df_iq)!='t'] #at earliest timepoint
+df_trial<-merge(df_trial,df_iq, by = c("centno", "scrnno"))
+
+#migration info
+df_rct<-df_rct[,!(names(df_rct) %in% c('bdate_m','bdate_y'))]
+df_rct<-df_rct[,names(df_rct)!='t']
+df_trial<-merge(df_trial,df_rct, by = c("centno", "scrnno"), all.x = T)
+
+#parental education and SES
+selected_vars<-c("centno","scrnno","ses_edumean_t1","maxschool_t1")
+df_ses<-df_ses[,names(df_ses) %in% selected_vars]
+df_trial<-merge(df_trial,df_ses, by = c("centno", "scrnno"))
+
+hist(df_ses$maxschool_t1)
+
+```
+
+
+## sample definition
+
+- retain only data for subsequent analysis that is
+  - without caregiver (df_trial$thcg==0)
+  - focused on child (df_trial$focus==2)
+  - Einzeltherapie (df_trial$set==1)
+  - no diagnostic assessment (df_trial$diag==0)
+  - actually trained aims (df_trail$practex==1)
+
+```{r define_sample}
+
+total_aims<-nrow(df_trial)
+
+df_trial<-df_trial[df_trial$thcg==0 & df_trial$focus==2 & df_trial$set==1 & df_trial$diag==0 & df_trial$practex==1,]
+
+print(paste0('retained data percentage:',round(nrow(df_trial)/total_aims,2)))
+
+```
+
+## pandemic break
+
+- first shutdown in Germany: 22/03/2020 - 04/05/2020
+- calculate a corona state based on lockdown onset (after_lockdown=T == session after 22/03/20)
+
+```{r}
+  lockdown_start_germany<-as.Date("22/03/20", format = "%d/%m/%y")
+  lockdown_end_germany<-as.Date("04/05/20", format = "%d/%m/%y")
+
+
+  #across all
+  df_trial$sdate_<-as.Date(df_trial$sdate_, format = "%d/%m/%y")
+  ggplot(df_trial,aes(sdate_,sessno))+geom_point()+
+    geom_vline(xintercept=lockdown_start_germany,color='red')+
+    geom_vline(xintercept=lockdown_end_germany,color='red')
+  hist(df_trial$sdate_,150)
+  
+  df_trial$after_lockdown<-ifelse(df_trial$sdate_>lockdown_start_germany,T,F)
+  table(df_trial$after_lockdown)
+  
+```
+
+## participants & sessions
+
+- shows participants ids (centno.scrnno)
+- sessions by participant
+- define an ID variable for df_trial
+
+```{r number_of_participants}
+
+#participants
+print('number of participants:')
+length(table(interaction(df_trial$centno,df_trial$scrnno,drop=T)))
+
+#session by participant
+sessions_by_participant<-as.numeric(
+  by(df_trial$sessno,interaction(df_trial$centno,df_trial$scrnno,drop=T),function(x){length(unique(x))}))
+hist(sessions_by_participant,main = 'sessions by participant')
+
+print('participant IDs')
+participant_IDs<-names(table(interaction(df_trial$centno,df_trial$scrnno,drop=T)))
+
+df_ids<-data.frame(participant_IDs,sessions_by_participant)
+
+df_ids %>%
+  kbl(caption = "Sessions by participant") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+```
+
+## exclude participants
+
+- exclude participant with only one session (id = 1.32)
+
+```{r}
+
+df_trial<-df_trial[!df_trial$id=='1.32',]
+
+```
+
+# therapy aims 
+
+- can be more than one per session
+- encoded by "aimno" variable (e.g. 10.6.2.1)
+  - first or two numbers define devleopmental area (e.g. 9, 10.2-10.6)
+  - first three numbers define specific aim (e.g. 10.6.2)
+  - last number defines expert level (1,2,3)
+  
+## developmental area
+
+- Entwicklungsbereiche (9.2 - 10.6)
+
+```{r developmental area}
+
+## Ziele overall
+#table(df_trial$aimno)
+
+#create data
+dev_area<-substr(df_trial$aimno,1,8)
+dev_area<-ifelse(nchar(dev_area)==5,substr(dev_area,1,1),dev_area)
+dev_area<-ifelse(nchar(dev_area)==8,substr(dev_area,1,4),dev_area)
+dev_area<-ifelse(grepl("A",dev_area),'A',dev_area)
+dev_area<-ifelse(grepl("B",dev_area),'B',dev_area)
+dev_area<-ifelse(grepl("-8",dev_area),NA,dev_area)
+
+dev_area_char<-dev_area
+dev_area<-as.factor(dev_area)
+levels(dev_area)<-c('communication & speech (10.2)','interaction & play (10.3)','emotion (10.4)','cognitive ability (10.5)','daily living skills (10.6)','basic abilities (9)','introduction (A)','reduction of unwanted behaviors (B)')
+
+df_trial$dev_area<-dev_area
+df_trial$dev_area_char<-dev_area_char
+
+#visualize data
+dev_area_table<-data.frame(sort(table(df_trial$dev_area),decreasing = TRUE))
+dev_area_table_char<-data.frame(sort(table(df_trial$dev_area_char),decreasing = TRUE))
+dev_area_table$dev_area_char<-dev_area_table_char$Var1
+dev_area_table<-dev_area_table[,c(1,3,2)]
+
+dev_area_table %>%
+  kbl(caption = "developmental areas across sessions") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+ggplot(df_trial,aes(x=dev_area,fill=dev_area))+geom_bar()+theme(axis.text.x=element_blank())
+
+```
+
+## aims across sessions
+
+- an welchen zielen wurde gearbeitet?
+
+```{r therapy aims}
+
+## Ziele overall
+#table(df_trial$aimno)
+
+aims<-substr(df_trial$aimno,1,8)
+aims<-ifelse(nchar(aims)==8,substr(aims,1,6),aims)
+aims<-ifelse(nchar(aims)==5,substr(aims,1,3),aims)
+aims<-ifelse(grepl("-8",aims),NA,aims)
+
+aims_rank<-aims
+aims_rank<-ifelse(grepl('10',aims_rank),substr(aims_rank,6,6),aims_rank)
+aims_rank<-ifelse(grepl('9',aims_rank),substr(aims_rank,3,3),aims_rank)
+aims_rank<-ifelse(grepl('A',aims_rank),NA,aims_rank)
+aims_rank<-ifelse(grepl('B',aims_rank),NA,aims_rank)
+df_trial$aims_rank<-aims_rank
+
+aims_char<-aims
+aims<-as.factor(aims)
+levels(aims)<-c('eye contact','passive vocabulary','gesture','expressive language (supported)',
+                'expressive language extended','questions & answers','making contact',
+                
+                'shared attention','exchange','sharing','non-interactive play','simple shared play',
+                'rule-based play','symbolic play','role play',
+                
+                'emotion recognition','emotion expression','emotion regulation',
+                
+                'classification','characteristics/opposites','memory',
+                'drawing','quantitative understanding','theory of mind',
+                'common knowledge',
+                
+                'daily routines','toilet training',
+                'problem solving','awareness of danger','spatial awareness','temporal orientation',
+                
+                'attention control','gaze following',
+                'imitation','representation','action planing','self awareness',
+                
+                'testing reinforcement','building therapeutic alliance','situational control','separation from caregiver',
+                
+                'aggression','stereotypic behavior','alternatives','anxiety','avoidance'
+                
+                )
+
+df_trial$aims<-aims
+df_trial$aims_char<-aims_char
+
+aims_table<-data.frame(sort(table(df_trial$aims),decreasing = TRUE))
+aims_table_char<-data.frame(sort(table(df_trial$aims_char),decreasing = TRUE))
+aims_table$aims_char<-aims_table_char$Var1
+aims_table<-aims_table[,c(1,3,2)]
+
+  aims_table %>%
+  kbl(caption = "occurance of aims across sessions") %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+aims_table_byrank<-as.matrix(table(df_trial$dev_area,df_trial$aims_rank))
+
+  aims_table_byrank %>%
+  kbl(caption = "aim ranks by developmental area across sessions") %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+```
+
+## first aims 
+
+- remove introduction sessions
+
+```{r create data of first session aims}
+
+#create data
+df_firstaims<-df_trial[df_trial$dev_area!='introduction (A)',]
+df_firstaims<-split(df_firstaims,df_firstaims$id)
+df_firstaims<-lapply(df_firstaims,function(x){
+  earliest_session<-min(x$sessno)
+  x<-x[x$sessno==earliest_session,]
+  return(x)
+})
+df_firstaims<-rbindlist(df_firstaims)
+
+```
+
+### sessions till first aims
+
+- Berechnung der Anzahl der Therapiesitzung und Tage, die Kind gebraucht hat, bis an Therapiezielen überhaupt gearbeitet werden kann (Kriterium: Anzahl der „A“-Sitzungen zu Beginn der Therapie“ sowie die Zeitspanne dieser Sitzungen).
+- is limited to sessions without caregiver, focused on child, in a single-therapy setting
+
+```{r first session theryp session and days}
+
+#session number after introduction   
+hist(df_firstaims$sessno[!duplicated(df_firstaims$id)],
+     main = 'session number when first aims',20)  
+
+table(df_firstaims$sessno[!duplicated(df_firstaims$id)]) %>%
+  kbl(caption = "Session number after introduction (after 'A')") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+```
+
+#### outlier investigation
+
+- id 2.4 has 60 session till first aims
+- caregiver was present during first 60 sessions - how to deal with it?
+
+```{r outlier_analysis first session}
+
+outlier_sessions<-df_session[df_session$centno=='2' & df_session$scrnno=='4',]
+outlier_sessions$sdate_<-as.Date(outlier_sessions$sdate_, format = "%d/%m/%y")
+ggplot(outlier_sessions,aes(sdate_,sessno,color=aimno))+geom_point()+labs(title= 'outlier participant concerning duration of introduction')
+
+outlier_sessions<-outlier_sessions[order(outlier_sessions$sessno),]
+
+outlier_sessions2<-df_therapy[df_therapy$centno=='2' & df_therapy$scrnno=='4',]
+table(outlier_sessions2$thcg)
+
+```
+
+### moderating factors
+
+- which factors influence the start of working on first aims
+- consider age, gender, parental education, migration status, corona, IQ, SES
+
+- for non-parametric testing: age, IQ, and lockdown have an effect on session number
+  - age: spearman correlation: rho = -0.31, p = .014
+  - IQ: spearman correlation: rho = -0.26, p = .045
+  - lockdown: session before lockdown: m/SD = 7.03/10.45, session after lockdown: m/SD = 7.57/5.18, p = .47
+
+--> consider those as covariates in testing?
+
+```{r moderating factors on first aim}
+
+#select only one row per participant
+df_firstaims_uniqueID<-df_firstaims[!duplicated(df_firstaims$id),]
+
+#nonparametric testing - categorical variables
+print('gender:')
+with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(gender)))
+print('migration status:')
+with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(migration), data = df_firstaims_uniqueID))
+print('parental education:')
+with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(maxschool_t1), data = df_firstaims_uniqueID))
+print('lockdown status:')
+with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(after_lockdown), data = df_firstaims_uniqueID))
+
+#--> significant influence of lockdown - sessions after lockdown take longer to reach aims
+with(df_firstaims_uniqueID,by(sessno,after_lockdown,psych::describe))
+
+#nonparametric testing - continous variables
+print('age:')
+with(df_firstaims_uniqueID, cor.test(agedemo, sessno, method = "spearman",exact=F))
+print('IQ:')
+with(df_firstaims_uniqueID,cor.test(full_iq, sessno, method = "spearman",exact=F))
+print('SES:')
+with(df_firstaims_uniqueID,cor.test(ses_edumean_t1, sessno, method = "spearman",exact=F))
+
+```
+
+### time till first aims
+
+```{r, time span to first session}
+
+#extract date of first session
+df_firstsession<-df_therapy[df_therapy$thsessno==1,]
+df_firstsession<-df_firstsession[,names(df_firstsession) %in% c('centno','scrnno','thdate_')]
+names(df_firstsession)<-c('centno','scrnno','date_first_session')
+
+#add - adds df_firstaims that already removed A/introduction codings
+df_firstaims<-merge(df_firstaims,df_firstsession,by =c("centno", "scrnno"))
+
+#convert to date
+df_firstaims$sdate_<- as.Date(df_firstaims$sdate_, format = "%d/%m/%y")
+df_firstaims$date_first_session<- as.Date(df_firstaims$date_first_session, format = "%d/%m/%y")
+
+#select only one row per participant
+df_firstaims_uniqueID<-df_firstaims[!duplicated(df_firstaims$id),]
+
+time_to_first_session<-data.frame(df_firstaims_uniqueID$sdate_-df_firstaims_uniqueID$date_first_session)
+names(time_to_first_session)<-'time_in_d'
+
+table(time_to_first_session) %>%
+   kbl(caption = "time in days from introduction to session with first aims") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
+
+ggplot(time_to_first_session,aes(x=time_in_d))+geom_bar()+xlab('time in days to first session with aims')
+
+
+df_date_first_session<-data.frame(df_firstaims_uniqueID$id,time_to_first_session$time_in_d,
+                                  df_firstaims_uniqueID$sessno,df_firstaims_uniqueID$sdate_)
+
+df_date_first_session$days_by_session<-round(df_date_first_session$time_to_first_session.time_in_d/
+                                               df_date_first_session$df_firstaims_uniqueID.sessno,2)
+
+names(df_date_first_session)<-c('id','days to first session','session number','date of first session','days / session')
+df_date_first_session<-df_date_first_session[order(df_date_first_session$'days to first session'),]
+
+df_date_first_session %>%
+   kbl(caption = "first session with aims: date and time by IDs", row.names = FALSE) %>%
+   kable_classic(full_width = T, html_font = "Cambria")
+
+```
+
+### first session aims
+
+the number of aims can be more than one per child 
+
+```{r first aims across number of aims}
+
+#table overview
+aims_table<-sort(table(droplevels(df_firstaims$aims)),decreasing = TRUE)
+aims_table<-data.frame(aims_table)
+
+aims_char_table<-sort(table(df_firstaims$aims_char),decreasing = TRUE)
+aims_table<-data.frame(names(aims_char_table),aims_table)
+names(aims_table)<-c('code','aim','occurances')
+
+  aims_table %>%
+  kbl(caption = "aims in the first session after introdcution") %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+#aims by participant
+table_aimspart<-by(df_firstaims$aims,df_firstaims$id,function(x){table(droplevels(x))})
+
+table_aimspart<-sapply(table_aimspart,dimnames)
+max_length<-max(sapply(table_aimspart,length))
+table_aimspart<-lapply(table_aimspart,function(x){
+  current_length<-length(x)
+  new_vector<-rep(NA,max_length)
+  new_vector[1:current_length]<-x
+  return(new_vector)})
+
+table_aimspart<-rbind.data.frame(table_aimspart)
+
+table_aimspart<-data.frame(t(table_aimspart))
+names(table_aimspart)<-paste('goal',1:length(names(table_aimspart)))
+row.names(table_aimspart)<-substr(row.names(table_aimspart),2,nchar(row.names(table_aimspart)))
+
+print('discussion point: Factor in the number of aims per participant?')
+
+table_aimspart[order(table_aimspart[,1]),] %>%
+  kbl(caption = "aims in the first session after introdcution by participant") %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+
+```
+
+## clustering of first aims
+
+- Gower Distance hierarchical clustering
+- considers missing data (not all participants have equal number of aims)
+- categorical data type
+
+```{r first aim clustering, fig.width=10, fig.height=6}
+
+#translate 
+table_aimspart_factor<-lapply(table_aimspart,as.factor)
+table_aimspart_factor<-data.frame(table_aimspart_factor[1],
+                                  table_aimspart_factor[2],
+                                  table_aimspart_factor[3],
+                                  table_aimspart_factor[4],
+                                  table_aimspart_factor[5],
+                                  table_aimspart_factor[6],
+                                  table_aimspart_factor[7])
+
+rownames(table_aimspart_factor)<-row.names(table_aimspart)
+
+
+# Compute Gower distance
+gower_dist <- daisy(table_aimspart_factor, metric = "gower")
+print('clustering metric - gower distance between pairwise comparisons (sum(1:64)):')
+table(round(gower_dist,2))
+
+# Perform hierarchical clustering
+hc <- hclust(gower_dist, method = "ward.D2")
+
+# Cut into clusters (e.g., 3 clusters)
+number_of_clusters<-5
+print(paste('assumed number of clusters:',number_of_clusters))
+
+clusters <- cutree(hc, k = number_of_clusters)
+
+# Add cluster labels to your data
+table_aimspart_factor$start_cluster <- clusters
+
+print('discussion point: language is difficult to consider as split across aims')
+
+table_aimspart_factor[order(table_aimspart_factor[,8]),] %>%
+  kbl(caption = "aims in the first session and starting CLUSTERS after introduction by participant") %>%
+  kable_classic(full_width = F, html_font = "Cambria") 
+
+# visualize cluster
+plot(hc, labels = rownames(table_aimspart_factor), main = "Dendrogram of Hierarchical Clustering")
+rect.hclust(hc, k = number_of_clusters, border = "red")  # Draw boxes for clusters
+
+```
+
+## therapy aims - expert level
+
+- expert level defines a type of mastery of a specific aim
+- last number defines expert level (1,2,3)
+- can be utilized as outcome measure of training 
+
+```{r}
+
+expert_level<-substr(df_trial$aimno,5,8)
+expert_level<-ifelse(nchar(expert_level)==4,substr(expert_level,4,4),expert_level)
+expert_level<-ifelse(nchar(expert_level)==0,NA,expert_level)
+
+expert_level<-as.factor(expert_level)
+levels(expert_level)<-c('beginner','intermediate','expert')
+
+df_trial$expert_level<-expert_level
+
+with(df_trial,table(dev_area,expert_level))
+
+ggplot(df_trial,aes(x=sessno,fill=expert_level))+geom_bar()+facet_wrap(~dev_area)
+
+
+```
+
+# changes and stability of aims
+
+- identifiy chains of aims 
+
+```{r prepare_data}
+
+#split by participant
+list_trial<-split(df_trial,df_trial$id)
+list_trial<-lapply(list_trial,function(x){x[order(x$sessno),]})
+
+```
+
+- showing exemplary participants
+- 3.	Prüfung der weiteren Angaben der Therapieziel im Verlauf der Therapie -> Stabilität bzw. Wechsel in andere Kategorie.
+
+```{r changes of aims example}
+
+#participant with low consistency
+test<-list_trial[[10]]
+test<-test[test$dev_area!='introduction',names(test) %in% c('sessno','aim','aims','expert_level')]
+test$aims_level<-paste(test$aims,test$expert_level,test$achieve)
+test<-reshape2::dcast(test, sessno ~ aim,value.var='aims_level')
+
+ test %>% 
+      kbl(caption = 'aims of participant with low stability') %>% 
+      kable_classic(full_width = F, html_font = "Cambria")
+  
+
+#participant with high consistency
+test<-list_trial[[1]]
+test<-test[!(test$dev_area %in% c('introduction','reduction of unwanted behaviors')),
+           names(test) %in% c('sessno','aim','aims','expert_level')]
+test$aims_level<-paste(test$aims,test$expert_level,test$achieve)
+test<-reshape2::dcast(test, sessno ~ aim,value.var='aims_level')
+
+ test %>% 
+      kbl(caption = 'aims of participant with high stability') %>% 
+      kable_classic(full_width = F, html_font = "Cambria")
+ 
+```
+
+
