@@ -21,7 +21,7 @@ require(ggplot2)
 require(kableExtra) #tables
 require(data.table) #rbindlist
 require(cluster) #clustering
-
+require(pbapply)
 
 
 #set theme
@@ -29,15 +29,58 @@ theme_set(theme_bw())
 
 ```
 
-Fragestellung - spezifische Hypothesen ausstehend:
+# Forschungsziel 
+
 Cluster der Therapieziele identifizieren - Verlauf der Probanden
 
 1.	Bildet sich der theoretische Ansatz des A-FFIP-Manuals mit den einzelne Förderbereichen sowie den Übungen von leicht bis Experte auch in der praktischen Arbeit mit den einzelnen Kindern ab? D.h. lernen die Kinder wie angenommen durch die Therapie aufeinander aufbauend über die entsprechenden Übungen?
 
+--> siehe 5.: Ja, längeres Arbeiten an spezifischen Zielen reduziert das Ausmaß der Hilfestellung und steigert die Wahrscheinlichkeit für das meistern der Zielebene. Aber längere Ketten sind auch mit einem niedrigeren Expertenlevel verbunden. Dies ist kontrolliert für die signifikante Kovariaten Alter, IQ, Vor/Nach Corona Lockdown
+
 2.	Mit welchen Förderbereichen wird begonnen? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?
+
+--> siehe 4.4.: es gibt 5 Cluster von Zielen mit denen begonnen wird. Mit drei großen Clustern: Blickkontakt + Imitation (n=29), Blickkontakt + Aufmerksamkeit (n=13) und expressive Sprache + Blickkontakt (n = 10). Diese sind unabhängig von Kovariaten
+--> siehe 4.3.2.: die Anzahl der Sitzungen bis mit der Arbeit an Therapiezielen begonnen werden beeinflusst durch höhere Alter, höherer IQ, und Beginn der Sitzungen vor dem Corona Lockdown 
 
 3.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?
 
+--> Diskussionspunkt: bisher liegt Fokus auf Ketten von Zielen, diese Untersuchung würde Fokus auf Transitionen von Zielen erweitern
+
+# spezifische Analysen 
+
+##January 2026
+
+	1. Welche Faktoren beeinflussen Beginn der Arbeit an Zielen? 
+		- Einfluss Alter, Geschlecht, Parent education, Migrationsstatus, Corona, IQ, SES
+		- -> age, IQ, and lockdown haben einen Einfluss
+	2. Cluster der Therpapieziele zum Einstieg
+		- Eher 3 große Cluster Modellieren
+		- -> 5 Clusters are more useful to get a language cluster
+		- Einfluss Alter, Geschlecht, Parent education, Migrationsstatus, Corona, IQ, SES - nicht-parametrische Testung
+		- --> keinen Einfluss auf Start Cluster
+	3. Session Verlauf - anhand der Kettenmodellierung
+		a. Ketten auf Ebene der Ziele
+		b. Ketten auf Ebene der Entwicklungsbereiche  (developmental area)
+		c. Ketten auf Ebene der Einzelziele (Expertlevel)
+		
+##Modellierung
+
+	- Ketten von zielen herausarbeiten
+		○ Mindestens zweimal bis dreimal bearbeitete Ziele berücksichtigen
+	- Outcome Ziel: 
+		○ Zielebene gemeistert (2) und 
+		○ Ausmaß Hilfestellung (2)
+		○ Zielanzahl
+		○ Wie lange Zielkette
+	- Pro Ziel und Kind geschaut, wie Lange an Ziel gearbeitet und mastery
+	- Anhand der Ketten und Qualität der ketten Clustern
+
+## TODO
+
+  - model transitions of aims between chains
+  - discuss: exclude low occurances aims (focus on prevalent aims)
+  - discuss: exclude chains of length < 2
+		
 # data overview and preparation
 
 - loads the data
@@ -216,10 +259,9 @@ table(df_session$practex) %>%
   kbl(caption = "practex: Übung durchgeführt") %>%
   kable_classic(full_width = T, html_font = "Cambria") 
 
-    
 #Ausmaß Hilfestellung: 0 = ohne Hilfe, 1 = mit Hilfestellung, 2 = selbstständig
 table(df_session$help) %>%
-  kbl(caption = "help: Ausmaß Hilfestellung (0 = ohne Hilfe, 1 = mit Hilfestellung, 2 = selbstständig)") %>%
+  kbl(caption = "help: Ausmaß Hilfestellung (0 = Hilfe notwendig, 1 = mit Hilfestellung, 2 = selbstständig)") %>%
   kable_classic(full_width = T, html_font = "Cambria") 
 
 #Zielebene gemeistert - 0= nein, 1 = teilweise, 2 = vollständig
@@ -279,10 +321,7 @@ selected_vars<-c("centno","scrnno","ses_edumean_t1","maxschool_t1")
 df_ses<-df_ses[,names(df_ses) %in% selected_vars]
 df_trial<-merge(df_trial,df_ses, by = c("centno", "scrnno"))
 
-hist(df_ses$maxschool_t1)
-
 ```
-
 
 ## sample definition
 
@@ -513,7 +552,7 @@ table(df_firstaims$sessno[!duplicated(df_firstaims$id)]) %>%
 
 #### outlier investigation
 
-- id 2.4 has 60 session till first aims
+- id 2.4 has 60 sessions till first aims
 - caregiver was present during first 60 sessions - how to deal with it?
 
 ```{r outlier_analysis first session}
@@ -654,16 +693,20 @@ table_aimspart[order(table_aimspart[,1]),] %>%
   kbl(caption = "aims in the first session after introdcution by participant") %>%
   kable_classic(full_width = F, html_font = "Cambria") 
 
-
 ```
 
-## clustering of first aims
+## clustering first aims
 
 - Gower Distance hierarchical clustering
+- consider the first 7 goals of every participant at first session
 - considers missing data (not all participants have equal number of aims)
 - categorical data type
 
 ```{r first aim clustering, fig.width=10, fig.height=6}
+
+# Cut into clusters (e.g., 3 clusters)
+number_of_clusters<-5
+print(paste('assumed number of clusters:',number_of_clusters))
 
 #translate 
 table_aimspart_factor<-lapply(table_aimspart,as.factor)
@@ -685,27 +728,101 @@ table(round(gower_dist,2))
 
 # Perform hierarchical clustering
 hc <- hclust(gower_dist, method = "ward.D2")
-
-# Cut into clusters (e.g., 3 clusters)
-number_of_clusters<-5
-print(paste('assumed number of clusters:',number_of_clusters))
-
 clusters <- cutree(hc, k = number_of_clusters)
+
 
 # Add cluster labels to your data
 table_aimspart_factor$start_cluster <- clusters
 
-print('discussion point: language is difficult to consider as split across aims')
+print('5 clusters combine language aims better into distinct cluster')
 
-table_aimspart_factor[order(table_aimspart_factor[,8]),] %>%
-  kbl(caption = "aims in the first session and starting CLUSTERS after introduction by participant") %>%
-  kable_classic(full_width = F, html_font = "Cambria") 
+# table_aimspart_factor[order(table_aimspart_factor[,8]),] %>%
+#   kbl(caption = "aims in the first session and starting CLUSTERS after introduction by participant") %>%
+#   kable_classic(full_width = F, html_font = "Cambria") 
+
 
 # visualize cluster
 plot(hc, labels = rownames(table_aimspart_factor), main = "Dendrogram of Hierarchical Clustering")
 rect.hclust(hc, k = number_of_clusters, border = "red")  # Draw boxes for clusters
 
+
+#add clusters to data
+id<-row.names(table_aimspart_factor)
+start_cluster<-table_aimspart_factor$start_cluster
+df_cluster<-data.frame(id,start_cluster)
+df_firstaims<-merge(df_firstaims,df_cluster,by='id')
+df_firstaims$start_cluster<-as.factor(df_firstaims$start_cluster)
+
+df_firstaims_uniqueID<-data.frame(df_firstaims[!duplicated(df_firstaims$id),])
+df_firstaims_uniqueID<-df_firstaims_uniqueID[,names(df_firstaims_uniqueID) %in% c('id','start_cluster')]
+df_trial<-merge(df_trial,df_firstaims_uniqueID,by='id')
+
 ```
+
+### describe clusters
+
+- show 5 most common aims in different clusters
+- label the clusters
+
+```{r describe initial clusters}
+
+#show 5 most common aims in different clusters
+cluster_aims<-by(table_aimspart_factor[,1:7],table_aimspart_factor$start_cluster,
+   function(x){sort(table(droplevels(unlist(x))),decreasing=T)[1:5]})
+cluster_aims<-lapply(cluster_aims,data.frame)
+cluster_aims<-do.call(cbind,cluster_aims)
+names(cluster_aims)<-rep(c('label','frequency'),number_of_clusters)
+
+participants_in_clusters<-as.numeric(table(table_aimspart_factor$start_cluster))
+header_label<-rep(2,number_of_clusters)
+names(header_label)<-paste('cluster',1:number_of_clusters,'(n=',participants_in_clusters,')')
+
+cluster_aims %>%
+  kbl(caption = "5 most common aims in the first session by clusters") %>%
+  kable_classic(full_width = F, html_font = "Cambria") %>%
+  add_header_above(header_label)
+
+
+```
+
+### moderating clusters
+
+- non-parametric Fisher's exact Test (categorical outcome = cluster, categorical predictor)
+- no moderator had an influence
+
+```{r moderating clusters}
+
+#select only one row per participant
+df_firstaims_uniqueID<-df_firstaims[!duplicated(df_firstaims$id),]
+table(df_firstaims_uniqueID$start_cluster)
+
+#nonparametric testing - categorical variables
+print('gender:')
+with(df_firstaims_uniqueID,table(start_cluster, gender))
+with(df_firstaims_uniqueID,fisher.test(table(start_cluster, gender)))
+print('migration status:')
+with(df_firstaims_uniqueID,table(start_cluster, migration))
+with(df_firstaims_uniqueID,fisher.test(table(start_cluster, migration)))
+print('parental education:')
+with(df_firstaims_uniqueID,table(start_cluster, maxschool_t1))
+with(df_firstaims_uniqueID,fisher.test(table(start_cluster, maxschool_t1)))
+print('lockdown status:')
+with(df_firstaims_uniqueID,table(start_cluster, after_lockdown))
+with(df_firstaims_uniqueID,fisher.test(table(start_cluster, after_lockdown)))
+
+#--> significant influence of lockdown - sessions after lockdown take longer to reach aims
+with(df_firstaims_uniqueID,by(sessno,after_lockdown,psych::describe))
+
+#nonparametric testing - continous variables
+print('age:')
+with(df_firstaims_uniqueID, kruskal.test(agedemo ~ start_cluster))
+print('IQ:')
+with(df_firstaims_uniqueID, kruskal.test(full_iq ~ start_cluster))
+print('SES:')
+with(df_firstaims_uniqueID, kruskal.test(ses_edumean_t1 ~ start_cluster))
+
+```
+
 
 ## therapy aims - expert level
 
@@ -731,45 +848,231 @@ ggplot(df_trial,aes(x=sessno,fill=expert_level))+geom_bar()+facet_wrap(~dev_area
 
 ```
 
-# changes and stability of aims
+# chains of aims
 
 - identifiy chains of aims 
+- at least 2 consecutive sessions with one aim should be later considered
 
-```{r prepare_data}
+## chain functions
+
+```{r chain functions}
+
+#function to extract outcome data for chains of a single aim within one participant
+#outocme data includes: achieve, help
+fun_chain_metrics<-function(single_chain){
+#chain static info
+single_chain_outcome<-single_chain[1,names(single_chain) %in% c('id','centno','scrnno','aims','aims_char',
+                                                                'dev_area','dev_area_char','start_cluster',
+                                                                'gender','agedemo','develop_age','verbal_iq',
+                                                                'nonverbal_iq','full_iq','test_age',
+                                                                'migration','maxschool_t1','ses_edumean_t1',
+                                                                'after_lockdown')]
+
+
+#chain characterization
+chain_length<-nrow(single_chain)
+chain_first_session<-min(single_chain$sessno)
+chain_last_session<-max(single_chain$sessno)
+chain_first_date<-min(single_chain$sdate_)
+chain_last_date<-max(single_chain$sdate_)
+chain_after_lockdown_percentage<-mean(single_chain$after_lockdown)
+chain_behave_mean<-mean(single_chain$behave)
+#chain outcome metrics
+chain_achieve_mean<-mean(single_chain$achieve)
+chain_achieve_first<-single_chain$achieve[single_chain$sessno==chain_first_session]
+chain_achieve_last<-single_chain$achieve[single_chain$sessno==chain_last_session]
+chain_achieve_0<-sum(single_chain$achieve==0)
+chain_achieve_1<-sum(single_chain$achieve==1)
+chain_achieve_2<-sum(single_chain$achieve==2)
+chain_help_mean<-mean(single_chain$help)
+chain_help_first<-single_chain$help[single_chain$sessno==chain_first_session]
+chain_help_last<-single_chain$help[single_chain$sessno==chain_last_session]
+chain_help_0<-sum(single_chain$help==0)
+chain_help_1<-sum(single_chain$help==1)
+chain_help_2<-sum(single_chain$help==2)
+chain_expertlevel_beginner<-sum(single_chain$expert_level=='beginner')
+chain_expertlevel_intermediate<-sum(single_chain$expert_level=='intermediate')
+chain_expertlevel_expert<-sum(single_chain$expert_level=='expert')
+
+single_chain_variables<-data.frame(
+  #chain characterization
+  chain_length,
+  chain_first_session,
+  chain_last_session,
+  chain_first_date,
+  chain_last_date,
+  chain_after_lockdown_percentage,
+  chain_behave_mean,
+  #chain outcome metrics
+  chain_achieve_mean,
+  chain_achieve_first,
+  chain_achieve_last,
+  chain_achieve_0,
+  chain_achieve_1,
+  chain_achieve_2,
+  chain_help_mean,
+  chain_help_first,
+  chain_help_last,
+  chain_help_0,
+  chain_help_1,
+  chain_help_2,
+  chain_expertlevel_beginner,
+  chain_expertlevel_intermediate,
+  chain_expertlevel_expert
+  )
+
+single_chain_outcome<-data.frame(single_chain_outcome,single_chain_variables)
+return(single_chain_outcome)
+
+}
+
+#function that loops fun_chain_metrics across aims by participant
+fun_chain_loop_ids_aims<-function(single_participant){
+  
+#testing:  
+#single_participant<-list_trial[[22]]
+  
+#identify aims
+all_aims<-names(table(droplevels(single_participant$aims)))
+
+#identifies chains for participant - loops across all aims of a participant
+single_participant_chains<-list()
+for(i in 1:length(all_aims)){
+single_participant_single_aim<-single_participant[single_participant$aims==all_aims[i],] 
+# Identify breaks
+group_id <- cumsum(c(TRUE, diff(single_participant_single_aim$sessno) != 1))
+# Split into list of chains
+chains <- split(single_participant_single_aim, group_id)
+#apply fun_chain_metrics to each list element
+chains_of_single_aim<-lapply(chains,fun_chain_metrics)
+#return to data.frame
+chains_of_single_aim<-rbindlist(chains_of_single_aim)
+#retrieve number of chains for single aim
+chains_of_single_aim$aim_chain_nr<-1:nrow(chains_of_single_aim)
+single_participant_chains[[i]]<-chains_of_single_aim
+}
+
+names(single_participant_chains)<-all_aims #names list of chains by aims
+single_participant_chains<-rbindlist(single_participant_chains) #turn list of chains to data.frame  
+return(single_participant_chains)
+
+}
+
+```
+
+## chain data extraction
+
+- splits data by participants
+- splits single participant by aims
+- create chains for every participant (for loop)
+- create mastery variable based on expert level
+
+```{r prepare data of chains}
 
 #split by participant
 list_trial<-split(df_trial,df_trial$id)
 list_trial<-lapply(list_trial,function(x){x[order(x$sessno),]})
 
+# applies fucntions above in loop (partiicpants) of loops (aims per participant)
+list_chains<-pblapply(list_trial,fun_chain_loop_ids_aims)
+df_chains<-rbindlist(list_chains)
+
+#create additional variable 
+df_chains$chain_mastery_mean<-with(df_chains,
+             ((chain_expertlevel_beginner*0)+(chain_expertlevel_intermediate*1)+(chain_expertlevel_expert*2))/
+               (chain_expertlevel_beginner+chain_expertlevel_intermediate+chain_expertlevel_expert))
+
+
 ```
 
-- showing exemplary participants
-- 3.	Prüfung der weiteren Angaben der Therapieziel im Verlauf der Therapie -> Stabilität bzw. Wechsel in andere Kategorie.
+## chain description
 
-```{r changes of aims example}
+```{r chain description}
 
-#participant with low consistency
-test<-list_trial[[10]]
-test<-test[test$dev_area!='introduction',names(test) %in% c('sessno','aim','aims','expert_level')]
-test$aims_level<-paste(test$aims,test$expert_level,test$achieve)
-test<-reshape2::dcast(test, sessno ~ aim,value.var='aims_level')
+table(df_chains$chain_length) %>%
+  kbl(caption = "total chain length") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
 
- test %>% 
-      kbl(caption = 'aims of participant with low stability') %>% 
-      kable_classic(full_width = F, html_font = "Cambria")
-  
+hist(with(df_chains,by(chain_length,aims,mean)),main = 'mean chain length')
 
-#participant with high consistency
-test<-list_trial[[1]]
-test<-test[!(test$dev_area %in% c('introduction','reduction of unwanted behaviors')),
-           names(test) %in% c('sessno','aim','aims','expert_level')]
-test$aims_level<-paste(test$aims,test$expert_level,test$achieve)
-test<-reshape2::dcast(test, sessno ~ aim,value.var='aims_level')
 
- test %>% 
-      kbl(caption = 'aims of participant with high stability') %>% 
-      kable_classic(full_width = F, html_font = "Cambria")
- 
+table_chainlength<-data.frame(with(df_chains,by(chain_length,aims,function(x){round(mean(x),2)})))
+chain_occurances<-as.numeric(with(df_chains,by(chain_length,aims,length)))
+table_chainlength<-data.frame(table_chainlength,chain_occurances)
+
+table_chainlength<-table_chainlength[order(table_chainlength[,1],decreasing = T),]
+names(table_chainlength)<-c('mean chain length','chain occurances')
+
+table_chainlength %>%
+  kbl(caption = "mean chain length by aim") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
 ```
+
+## chain visualization
+
+```{r chain visualization}
+
+ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
+       aes(chain_first_session,id,alpha=chain_last_session-chain_first_session,color=dev_area))+geom_point()+facet_wrap(~dev_area)
+
+ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
+       aes(chain_first_session,weight=chain_last_session-chain_first_session,fill=dev_area))+
+  geom_density(aes(y = after_stat(count)), adjust = 1)+ #weighted by occurances
+  labs(x='session number',title = 'density of chains across sessions weighted by chain length')+
+  facet_wrap(~dev_area)
+
+
+```
+
+
+## chain analysis
+
+```{r chain analysis}
+
+require(lme4)
+require(lmerTest)
+
+#describe outcome variables
+psych::describe(df_chains$chain_length)
+psych::describe(df_chains$chain_help_mean)
+psych::describe(df_chains$chain_achieve_mean)
+psych::describe(df_chains$chain_mastery_mean)
+
+#prepare data 
+lmm_data<-df_chains[df_chains$chain_after_lockdown_percentage %in% c(0,1),]
+
+# function to plot model as APA table
+fun_table_lmm<-function(lmm,caption){
+
+lmm_summary<-data.frame(round(summary(lmm)$coefficients,3))
+names(lmm_summary)<-c('estimate','SE','df','t-value','p-value')
+variable<-c('intercept','chain length','full IQ','gender','age','after lockdown')
+lmm_summary<-data.frame(variable,lmm_summary)
+
+lmm_summary %>%
+  kbl(caption = caption,row.names = F) %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+}
+
+lmm<-lmer(scale(chain_help_mean)~scale(chain_length)+scale(full_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="help outcome: effect of chain length")
+
+lmm<-lmer(scale(chain_achieve_mean)~scale(chain_length)+scale(full_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="achieve outcome: effect of chain length")
+
+lmm<-lmer(scale(chain_mastery_mean)~scale(chain_length)+scale(full_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="mastery outcome: effect of chain length")
+
+
+```
+
+
+- clustern based on clusters and quality of clusters
+- Prüfung der weiteren Angaben der Therapieziel im Verlauf der Therapie -> Stabilität bzw. Wechsel in andere Kategorie.
 
 
