@@ -16,16 +16,52 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-#required packages
-require(ggplot2) #visualization
-require(kableExtra) #tables
-require(data.table) #rbindlist
-require(cluster) #clustering
-require(pbapply) #progres bar for apply functions
-library(DiagrammeR) #flowchart
-require(lme4) #chain analysis
-require(lmerTest) #chain analysis
-require(brms) #chain analysis - Bayesian
+# #required packages
+# require(ggplot2) #visualization
+# require(kableExtra) #tables
+# require(data.table) #rbindlist
+# require(cluster) #clustering
+# require(pbapply) #progres bar for apply functions
+# require(DiagrammeR) #flowchart
+# require(lme4) #chain analysis
+# require(lmerTest) #chain analysis
+# require(brms) #chain analysis - Bayesian
+# require(dplyr) #mutate
+# library(tidygraph) #network visualization
+# library(ggraph) #network visualization
+# library(igraph) #network visualization
+
+
+pkgs <- c("ggplot2", #visualization
+         "kableExtra", # tables
+         "data.table", # rbindlist
+         "cluster", # clustering
+         "pbapply", # progres bar for apply functions
+         "DiagrammeR",# flowchart
+         "lme4",#chain analysis
+         "lmerTest", #chjain analysis
+         "brms", #chain analysis - Bayesian
+         "dplyr", #mutate
+         "tidygraph", #network visualization
+         "ggraph", #network visualization
+         "igraph" #network visualization
+         )
+
+# check if required packages are installed
+installed_packages = pkgs %in% rownames(installed.packages())
+
+# install packages if not installed
+if (any(installed_packages == FALSE)) {
+  install.packages(pkgs[!installed_packages])
+}
+
+#loads required packages and gives error if not found
+lapply(pkgs, function(pkg) {
+  if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
+    message(paste("Package", pkg, "not found."))
+  }
+})
+
 
 #set theme
 theme_set(theme_bw())
@@ -36,90 +72,112 @@ root_path<-"C:/Users/nico/Nextcloud/KGU/A-FFIP"
 
 ```
 
-# research aims 
+analysis of the session data in the A-FFIP randomized-controlled trial. Therapist filed a form on each therapy session for each child. this included information on the A-FFIP [therapy aims](#therapy-aims) (developmental area, aims, expert level) worked on. the therapist also rated [aim outcomes](#outcome-variables) (help needed, aim mastery). The current analysis investigates whether therapy aims cluster across participants and which determinants define aim outcomes. This is achieved by concatenating sessions into [therapy aim chains](#aim-chains) based on linear mixed models, hierarchical clustering, and Bayesian Oridnal Mixed models 
+
+# summary 
+
+**1.	Bildet sich der theoretische Ansatz des A-FFIP-Manuals mit den einzelne Förderbereichen sowie den Übungen von leicht bis Experte auch in der praktischen Arbeit mit den einzelnen Kindern ab? D.h. lernen die Kinder wie angenommen durch die Therapie aufeinander aufbauend über die entsprechenden Übungen?**
+
+  - siehe [chain analysis](#chain-analysis) 
+  - Ja, längeres Arbeiten an spezifischen Zielen (SD = 2.5 Sitzungen):
+    - reduziert das [Ausmaß der Hilfestellung](#linear-mixed-help): 0.05 [0.02, 0.07] 
+    - steigert die Wahrscheinlichkeit für das [Meistern der Zielebene](#linear-mixed-achieve): 0.06 [0.03, 0.09]
+    - aber längere Ketten sind auch mit einem niedrigeren [Expertenlevel](#linear-mixed-mastery) verbunden, i.e. es werden im mittel dann eher leichtere Übungen durchgeführt: -0.05 [-0.08, -0.02] 
+  - jeweils kontrolliert für die signifikante Kovariaten Alter, IQ, gender, Vor/Nach Corona Lockdown
+  - repliziert, wenn daten beschränkt auf drei häufigsten Entwicklungsbereiche: [chain analysis restricted](#chain-analysis-restricted)
+  - repliziert für [Bayesian Ordinal Mixed Models](#Bayesian-ordinal) - da outcome ratings (0,1,2) eher ordinalskaliert sind
+    - 2.5 increase in chain length is associated with a 9% increase in odds of being in less help category
+    - 2.5 increase in chain length is associated with about a 18% increase in odds of being in higher achieve category
+
+**2. Ist die Anzahl der Sitzungen bis mit Therapiezielen begonnen wird von demographischen Variablen abhängig?**
+  
+  - Es braucht eine geringe Anzahl von Sitzungen bis mit Therapiezielen begonnen wird [ist beeinflusst](#moderating-factors-first-aims) wenn: 
+    - weibliches statt männliches Geschlecht: Chi2 = 5.75, p=.01 (w: 3.73 (1.9), m: 7.98 (8.98))
+    - höheres Alter der Kinder: rho = -0.31, p=.01
+  - kein Einfluss von 
+    - Beginn der Sitzungen vor dem Corona Lockdown 
+    - Migrationsstatus der Eltern
+    - Bildungsstand der Eltern
+    - IQ
+
+**3.	Mit welchen Förderbereichen wird begonnen? - Clustering**
+
+  - siehe [Clustering](#clustering-aims) 
+  - es gibt [5 Cluster](#cluster-first-aims-outcome) von Zielen mit denen begonnen wird.
+    - n=21: eye contact + action planning
+    - n=13 eye contact + attentional control
+    - n=11 eye contact + expressive language
+    - n=12 expressive langugae extended + imitation
+    - n=4 attention control + gaze following
+  - siehe [moderating factors](#moderating-factors-clusters) - Cluster sind nicht abhängig von demographischen Variablen 
+  
+**4.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?**
+
+  - Diskussionspunkt: bisher liegt Fokus auf Ketten von Zielen, diese Untersuchung würde Fokus auf Transitionen von Zielen erweitern
+
+
+## research aims 
 
 - clustering of therapy aims 
 - progress of patients for aims
 
-## summary 
-
-1.	Bildet sich der theoretische Ansatz des A-FFIP-Manuals mit den einzelne Förderbereichen sowie den Übungen von leicht bis Experte auch in der praktischen Arbeit mit den einzelnen Kindern ab? D.h. lernen die Kinder wie angenommen durch die Therapie aufeinander aufbauend über die entsprechenden Übungen?
-
-  - siehe [chain analysis](#chain-analysis) 
-  - Ja, längeres Arbeiten an spezifischen Zielen reduziert das Ausmaß der Hilfestellung und steigert die Wahrscheinlichkeit für das meistern der Zielebene. 
-  - Aber längere Ketten sind auch mit einem niedrigeren Expertenlevel verbunden. 
-  - Dies ist kontrolliert für die signifikante Kovariaten Alter, IQ, Vor/Nach Corona Lockdown
-  - repliziert, wenn daten beschränkt auf drei häufigsten Entwicklungsbereiche: [chain analysis restricted](#chain-analysis-restricted)
-
-2.	Mit welchen Förderbereichen wird begonnen? - Clustering
-
-  - siehe [Clustering](#clustering-aims) 
-  - es gibt 5 Cluster von Zielen mit denen begonnen wird.  
-  - Diese sind unabhängig von Kovariaten
-  
-3. Gibt es [bzgl. der CLuster] Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?  
-  
-  - siehe [moderating factors](#moderating-factors) 
-  - die Anzahl der Sitzungen bis mit Therapiezielen begonnen wird ist beeinflusst durch: 
-  - höheres Alter der Kinder, höherer non-verbaler IQ, und Beginn der Sitzungen vor dem Corona Lockdown 
-
-3.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?
-
-  - Diskussionspunkt: bisher liegt Fokus auf Ketten von Zielen, diese Untersuchung würde Fokus auf Transitionen von Zielen erweitern
 
 ## modelling details
 
-	- Ketten von zielen herausarbeiten
-		- Mindestens zweimal bis dreimal bearbeitete Ziele berücksichtigen
-	- Outcome Ziel: 
-		- Zielebene gemeistert (2)
-		- Ausmaß Hilfestellung (2)
-		- Zielanzahl
-		- Wie lange Zielkette?
-	- Pro Ziel und Kind geschaut, wie Lange an Ziel gearbeitet und mastery
-	- Anhand der Ketten und Qualität der ketten Clustern
+- Ketten von zielen herausarbeiten
+	- Mindestens zweimal bearbeitete Ziele berücksichtigen
+- Outcome Ziel: 
+	- Zielebene gemeistert (2)
+	- Ausmaß Hilfestellung (2)
+	- Zielanzahl (?)
+	- Wie lange Zielkette? (predictor: chain_length)
+- Pro Ziel und Kind geschaut, wie Lange an Ziel gearbeitet und mastery
+- Anhand der Ketten und Qualität der ketten Clustern
 
 ## progress log 
 
 ### January 2026
 
-	1. Welche Faktoren beeinflussen Beginn der Arbeit an Zielen? - see [moderating factors](#moderating-factors)
-		- Einfluss Alter, Geschlecht, Parent education, Migrationsstatus, Corona, IQ, SES
-		- -> age, IQ, and lockdown haben einen Einfluss
-	2. Cluster der Therpapieziele zum Einstieg
-		- 5 clusters that retain a language cluster
-		- covariates and demographics have no influence on starting cluster
-	3. Session Verlauf - anhand der Kettenmodellierung
-		a. Ketten auf Ebene der Ziele (REMAINS THE CURRENT FOCUS)
-		b. Ketten auf Ebene der Entwicklungsbereiche  (developmental area)
-		c. Ketten auf Ebene der Einzelziele (Expertlevel)
+1. Welche Faktoren beeinflussen Beginn der Arbeit an Zielen? - see [moderating factors](#moderating-factors)
+	- Einfluss Alter, Geschlecht, Parent education, Migrationsstatus, Corona, IQ, SES
+	- -> age, IQ, and lockdown haben einen Einfluss
+2. Cluster der Therpapieziele zum Einstieg
+	- 5 clusters that retain a language cluster
+	- covariates and demographics have no influence on starting cluster
+3. Session Verlauf - anhand der Kettenmodellierung
+	a. Ketten auf Ebene der Ziele (REMAINS THE CURRENT FOCUS)
+	b. Ketten auf Ebene der Entwicklungsbereiche  (developmental area)
+	c. Ketten auf Ebene der Einzelziele (Expertlevel)
 
 ### March 2026 - descriptive analysis
 
-  1. Anzahl der Therapiesitzungen bis an Therapiezielen überhaupt gearbeitet werden kann
-    - mean = 7.21 sessions, SD = 8.31 session, min-max = 2-60
-  2. Zeit bis an Therapiezielen überhaupt gearbeitet werden kann
-    - mean = 32 days, SD = 40.3 days, min-max = 1-253
+1. Anzahl der Therapiesitzungen bis an Therapiezielen überhaupt gearbeitet werden kann
+  - mean = 7.21 sessions, SD = 8.31 session, min-max = 2-60
+2. Zeit bis an Therapiezielen überhaupt gearbeitet werden kann
+  - mean = 32 days, SD = 40.3 days, min-max = 1-253
 
 ### May 2026
 
-  1. added sample description after final sample definition, see [descriptive table](#descriptive-table)
-  2. excluded participants with less than 10 sessions (n=2)
-  3. improved markdown visualization
-  4. removed chains length < 2
-  5. chain analysis restricted to three most common dev areas
-  6. alternative models to LMM explored --> Bayesian model 
+1. added sample description after final sample definition, see [descriptive table](#descriptive-table)
+2. excluded participants with less than 10 sessions (n=2)
+3. improved markdown visualization
+4. removed chains length < 2
+5. chain analysis restricted to three most common dev areas --> [chain analysis restricted](#chain-analysis-restricted)
+6. alternative models to LMM explored --> [Bayesian Ordinal Mixed Models](#Bayesian-ordinal)
   
-
 ## TODO
 
   - model transitions of aims between chains
   - discuss: exclude low occurances aims (focus on prevalent aims)
-  - discuss: exclude chains of length < 2
-		
+  - LMM for last session in chain
+  - transform mastery for Bayesian analysis (done?)
+  - Markov chains for chain transitions?
+  - expert level analysis for chains?
+  	
 # raw data load
 
 - loads the data
+- based on IMBI data set (release: July 2023)
 
 ```{r load data}
 
@@ -151,6 +209,10 @@ df_rct<-read.csv(rct_path)
 ses_path<-paste0(project_folder,'/export_ses_20230728.csv') #socioeconomic status
 df_ses<-read.csv(ses_path)
 
+#ados symptoms
+ados_path<-paste0(project_folder,'/export_ados_20230728.csv') #ADOS
+df_ados<-read.csv(ados_path)
+
 
 ```
 
@@ -162,7 +224,6 @@ df_ses<-read.csv(ses_path)
 ```{r define IQ}
 
 #based on A-FFIP data preprocessing script
-
 
 #select relevant data
 df_wppsi <- df_wppsi[,names(df_wppsi) %in% c('centno', 'scrnno', 't', 'wppsi_ver','wppsidate',
@@ -226,7 +287,7 @@ df_iq$develop_age_w<-develop_age_w
 
 - different data frames for:
   - per session properties: df_therapy
-  - per sim properties (multiple per session): df_session
+  - per aim properties (multiple per session): df_session
 
 ## session properties
 
@@ -281,6 +342,7 @@ table(df_therapy$diag) %>%
 - multiple aims per session
 - is a different data frame in the raw data and needs to me merged with session properties
 - number of aims within the session
+- further defined by (practex) whether aim was actually trained
 - there is no priority or rank of aims
 
 ```{r aims_per_session}
@@ -291,17 +353,10 @@ table(df_session$aim)  %>%
   kable_classic(full_width = T, html_font = "Cambria") 
 ##-->  aim number within the session (3 = third of three aims)
 ## 	
-```
-
-## aim practice
-
-- only consider aims that were actually trained (practex), additional inclusion criterion
-
-```{r aim_practice}
 
 #Übung durchgeführt
 table(df_session$practex) %>%
-  kbl(caption = "practex: Übung durchgeführt") %>%
+  kbl(caption = "practex: wurde Übung zu Ziel durchgeführt") %>%
   kable_classic(full_width = T, html_font = "Cambria")
 
 #if Übung durchgeführt, then: Übung variiert
@@ -310,7 +365,7 @@ table(df_session$practvar)
 
 ```
 
-## outcome variables
+## outcome variables {#outcome-variables}
 
 - help (0-2) and achieve (0-2) define a core outcome of the analysis
 - behave (0 versus 1) could be a secondary outcome variable
@@ -337,6 +392,8 @@ table(df_session$behave) %>%
 # data set definition
 
 - combines session and therapy data, adding demographics, and select sessions based on criteria
+  - df_session = session data = multiple per session based on number of aims
+  - df_therapy = therapy data = one per session
 
 ## merge data
 
@@ -364,6 +421,7 @@ df_trial$id<-paste(df_trial$centno,df_trial$scrnno,sep='.')
 - age 
 - migration info 
 - parental education
+- autism symptoms / ADOS
 
 ```{r adding demographic data}
 
@@ -383,6 +441,13 @@ df_trial<-merge(df_trial,df_rct, by = c("centno", "scrnno"), all.x = T)
 selected_vars<-c("centno","scrnno","ses_edumean_t1","maxschool_t1")
 df_ses<-df_ses[,names(df_ses) %in% selected_vars]
 df_trial<-merge(df_trial,df_ses, by = c("centno", "scrnno"))
+
+#adutism symptoms / ados
+selected_vars<-c("centno","scrnno",'t',"adosmodule","ados_compare",'ados_sa','ados_rrb')
+df_ados<-df_ados[,names(df_ados) %in% selected_vars]
+df_ados<-df_ados[df_ados$t=='1',]
+df_ados<-df_ados[,names(df_ados)!='t']
+df_trial<-merge(df_trial,df_ados, by = c("centno", "scrnno"))
 
 ```
 
@@ -530,13 +595,15 @@ print(paste0('proportion of therapy session after first lockdown (22/03/20): ',
 
 # sample description
 
+see [sample description](#descriptive-table). Excludes particitpants with less than 10 sessions (n=2). Participants have different [number of sessions](#session-numbers)
+
 ## exclude participants
 
 - exclude participants with less than 10 session 
   - only one session (id = 1.32)
   - only 6 sessions (id = 4.23)
 
-```{r}
+```{r exclude_participants}
 
 df_trial<-df_trial[!df_trial$id=='1.32',]
 df_trial<-df_trial[!df_trial$id=='4.23',]
@@ -544,7 +611,7 @@ df_trial<-df_trial[!df_trial$id=='4.23',]
 
 ```
 
-## participants & sessions overview
+## participants & sessions overview {#session-numbers}
 
 - shows participants ids (centno.scrnno)
 - sessions by participant
@@ -623,17 +690,18 @@ df_sample_numeric %>%
 
 ```
 
-# therapy aims overview
+# therapy aims overview {#therapy-aims}
 
 - can be more than one per session
 - encoded by "aimno" variable (e.g. 10.6.2.1)
-  - first or two numbers define devleopmental area (e.g. 9, 10.2-10.6)
-  - first three numbers define specific aim (e.g. 10.6.2) --> is our target
+  - first or two numbers define developmental area (e.g. 9, 10.2-10.6)
+  - first three numbers define specific therapy aim (e.g. 10.6.2) --> defines the [therapy aim chains](#aim-chains)
   - last number defines expert level (1,2,3) --> rather as outcome variable
   
 ## developmental area
 
 - Entwicklungsbereiche (9.2 - 10.6)
+- can be more than one per session
 
 ```{r developmental area}
 
@@ -669,9 +737,10 @@ ggplot(df_trial,aes(x=dev_area,fill=dev_area))+geom_bar()+theme(axis.text.x=elem
 
 ```
 
-## aims across sessions
+## therapy aims
 
 - an welchen zielen wurde gearbeitet?
+- can be more than one per session
 
 ```{r therapy aims}
 
@@ -744,7 +813,7 @@ aims_table<-aims_table[,c(1,3,2)]
 - remove introduction sessions
 - the number of aims in the first session can be more than one per child 
 
-```{r create data of first session aims}
+```{r create data of first session therapy aims}
 
 #create data
 df_firstaims<-df_trial[df_trial$dev_area!='introduction (A)',]
@@ -888,9 +957,9 @@ table(outlier_sessions2$thcg)
 
 ```
 
-## moderating factors {#moderating-factors}
+## moderating factors {#moderating-factors-first-aims}
 
-- which factors influence the start of working on first aims
+- which factors influence the start of working on the first therapy aims
 - consider age, gender, parental education, migration status, corona, IQ, SES
 
 - for non-parametric testing: age, IQ, and lockdown have an effect on session number
@@ -908,6 +977,7 @@ df_firstaims_uniqueID<-df_firstaims[!duplicated(df_firstaims$id),]
 #nonparametric testing - categorical variables
 print('gender:')
 with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(gender)))
+with(df_firstaims_uniqueID,by(sessno,gender,psych::describe))
 print('migration status:')
 with(df_firstaims_uniqueID,kruskal.test(sessno ~ as.factor(migration), data = df_firstaims_uniqueID))
 print('parental education:')
@@ -922,16 +992,17 @@ with(df_firstaims_uniqueID,by(sessno,after_lockdown,psych::describe))
 print('age:')
 with(df_firstaims_uniqueID, cor.test(agedemo, sessno, method = "spearman",exact=F))
 print('IQ:')
-with(df_firstaims_uniqueID,cor.test(full_iq, sessno, method = "spearman",exact=F))
+with(df_firstaims_uniqueID,cor.test(nonverbal_iq, sessno, method = "spearman",exact=F))
 print('SES:')
 with(df_firstaims_uniqueID,cor.test(ses_edumean_t1, sessno, method = "spearman",exact=F))
 
 ```
 
-## clustering first aims {#clustering-aims}
+# clustering first aims {#clustering-aims}
 
 - Cluster method: Gower Distance Hierarchical Clustering
-- consider the first 7 goals of every participant at first session
+- Gower Distance = useful when comapring a mix of categorical and numeric variables
+- consider the first 7 therapy aims of every participant at the first session
 - considers missing data (not all participants have equal number of aims)
 - categorical data type
 
@@ -994,9 +1065,9 @@ df_trial<-merge(df_trial,df_firstaims_uniqueID,by='id')
 
 ```
 
-### describe clusters
+## describe clusters {#cluster-first-aims-outcome}
 
-- 5 most common aims in different clusters for first therapy session aims
+- 5 most common aims in different clusters for first therapy aims
 - labels the clusters 
 
 ```{r describe initial clusters}
@@ -1020,7 +1091,7 @@ cluster_aims %>%
 
 ```
 
-### moderating clusters
+## moderating clusters {#moderating-factors-clusters}
 
 - non-parametric Fisher's exact Test (categorical outcome = cluster, categorical predictor)
 - no moderator had an influence
@@ -1059,13 +1130,13 @@ with(df_firstaims_uniqueID, kruskal.test(ses_edumean_t1 ~ start_cluster))
 ```
 
 
-## therapy aims - expert level
+# therapy aims - expert level
 
 - expert level defines a type of mastery of a specific aim
 - last number defines expert level (1,2,3)
 - can be utilized as outcome measure of training 
 
-```{r}
+```{r therapy aims expert level}
 
 expert_level<-substr(df_trial$aimno,5,8)
 expert_level<-ifelse(nchar(expert_level)==4,substr(expert_level,4,4),expert_level)
@@ -1083,9 +1154,9 @@ ggplot(df_trial,aes(x=sessno,fill=expert_level))+geom_bar()+facet_wrap(~dev_area
 
 ```
 
-# chains of aims
+# chains of therapy aims {#aim-chains}
 
-- identifiy chains of consecutive working on specific aims 
+- identify chains of consecutive working on specific therapy aims 
 - at least 2 consecutive sessions with one aim should be later considered
 
 ## chain functions
@@ -1096,7 +1167,7 @@ ggplot(df_trial,aes(x=sessno,fill=expert_level))+geom_bar()+facet_wrap(~dev_area
 ```{r chain functions}
 
 #function to extract outcome data for chains of a single aim within one participant
-#outocme data includes: achieve, help
+#outcome data includes: achieve, help
 fun_chain_metrics<-function(single_chain){
 #chain static info
 single_chain_outcome<-single_chain[1,names(single_chain) %in% c('id','centno','scrnno','aims','aims_char',
@@ -1106,7 +1177,6 @@ single_chain_outcome<-single_chain[1,names(single_chain) %in% c('id','centno','s
                                                                 'migration','maxschool_t1','ses_edumean_t1',
                                                                 'after_lockdown')]
 
-
 #chain characterization
 chain_length<-nrow(single_chain)
 chain_first_session<-min(single_chain$sessno)
@@ -1115,6 +1185,7 @@ chain_first_date<-min(single_chain$sdate_)
 chain_last_date<-max(single_chain$sdate_)
 chain_after_lockdown_percentage<-mean(single_chain$after_lockdown)
 chain_behave_mean<-mean(single_chain$behave)
+
 #chain outcome metrics
 chain_achieve_mean<-mean(single_chain$achieve)
 chain_achieve_first<-single_chain$achieve[single_chain$sessno==chain_first_session]
@@ -1131,6 +1202,7 @@ chain_help_2<-sum(single_chain$help==2)
 chain_expertlevel_beginner<-sum(single_chain$expert_level=='beginner')
 chain_expertlevel_intermediate<-sum(single_chain$expert_level=='intermediate')
 chain_expertlevel_expert<-sum(single_chain$expert_level=='expert')
+chain_expertlevel_last<-single_chain$expert_level[single_chain$sessno==chain_last_session]
 
 single_chain_variables<-data.frame(
   #chain characterization
@@ -1156,7 +1228,8 @@ single_chain_variables<-data.frame(
   chain_help_2,
   chain_expertlevel_beginner,
   chain_expertlevel_intermediate,
-  chain_expertlevel_expert
+  chain_expertlevel_expert,
+  chain_expertlevel_last
   )
 
 single_chain_outcome<-data.frame(single_chain_outcome,single_chain_variables)
@@ -1226,6 +1299,130 @@ df_chains<-df_chains[df_chains$chain_length>1,]
 
 ```
 
+##chain transitions
+
+- retrieves the aim of the next and previous chain
+- previous and next chains are defined by lower or higher therapy session number in the first session of a chain
+
+```{r add prev next chains}
+# add previous / next chain information per participant
+# order chains per participant by starting session and compute lag/lead
+df_chains <- df_chains %>%
+  dplyr::group_by(id) %>%
+  dplyr::arrange(chain_first_session, .by_group = TRUE) %>%
+  dplyr::mutate(
+    prev_chain_aim = dplyr::lag(as.character(aims)),
+    next_chain_aim = dplyr::lead(as.character(aims)),
+    prev_chain_length = dplyr::lag(chain_length),
+    next_chain_length = dplyr::lead(chain_length),
+    prev_chain_dev_area = dplyr::lag(as.character(dev_area_char)),
+    next_chain_dev_area = dplyr::lead(as.character(dev_area_char)),
+    prev_same_aim = ifelse(is.na(prev_chain_aim), NA, prev_chain_aim == as.character(aims)),
+    next_same_aim = ifelse(is.na(next_chain_aim), NA, next_chain_aim == as.character(aims))
+  ) %>%
+  dplyr::ungroup()
+
+```
+
+```{r chain transition matrix}
+# create transition matrix: current aim -> next aim
+# only include chains with non-NA next_chain_aim (i.e., exclude last chains per participant)
+df_transitions <- df_chains[!is.na(df_chains$next_chain_aim), ]
+
+# filter to aims with > 30 total occurrences (either as current or next aim)
+minimal_number_of_occurances<-30
+
+aim_counts <- table(c(as.character(df_transitions$aims), as.character(df_transitions$next_chain_aim)))
+common_aims <- names(aim_counts[aim_counts > minimal_number_of_occurances])
+
+df_transitions_filtered <- df_transitions[
+  (as.character(df_transitions$aims) %in% common_aims) & 
+  (as.character(df_transitions$next_chain_aim) %in% common_aims), 
+]
+
+cat("Filtered to", length(common_aims), "aims with >", minimal_number_of_occurances, "total occurrences\n")
+cat("Remaining transitions:", nrow(df_transitions_filtered), "out of", nrow(df_transitions), "\n\n")
+
+# build transition matrix (count)
+transition_matrix_count <- table(df_transitions_filtered$aims, df_transitions_filtered$next_chain_aim)
+
+# convert to proportions (row-wise: probability of transitioning FROM each aim)
+transition_matrix_prop <- prop.table(transition_matrix_count, margin = 1)
+
+# round for display
+transition_matrix_prop_display <- round(transition_matrix_prop, 3)
+
+# display as kable
+transition_matrix_prop_display %>%
+  kbl(caption = "Chain transition probabilities (aims with > 50 occurrences): likelihood of transitioning FROM aim (rows) TO aim (columns)") %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+
+# visualize as heatmap
+transition_matrix_long <- as.data.frame.table(transition_matrix_count)
+names(transition_matrix_long) <- c('from_aim', 'to_aim', 'count')
+transition_matrix_long$proportion <- as.data.frame.table(transition_matrix_prop)[, 3]
+
+ggplot(transition_matrix_long, aes(x = to_aim, y = from_aim, fill = proportion)) +
+  geom_tile(color = 'white') +
+  scale_fill_gradient(low = 'white', high = 'steelblue') +
+  geom_text(aes(label = count), size = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(title = 'Chain Transitions (aims with > 50 occurrences): Heatmap of Aim Sequences',
+       x = 'Next Aim', y = 'Current Aim', fill = 'Proportion')
+
+# summary statistics
+cat("\nTransition Summary Statistics:\n")
+cat("Total chain transitions (filtered):", nrow(df_transitions_filtered), "\n")
+cat("Percentage of chains that repeat same aim:", 
+    round(mean(df_transitions_filtered$next_same_aim, na.rm = TRUE) * 100, 1), "%\n")
+
+```
+
+```{r chain transition network, message=FALSE, warning=FALSE, fig.width=10, fig.height=9}
+
+# thresholds
+min_prop <- 0.1
+min_occurrences <- 100
+
+frequent_aims <- names(aim_counts[aim_counts > min_occurrences])
+
+edges <- transition_matrix_long |>
+  filter(
+    proportion >= min_prop,
+    as.character(from_aim) != as.character(to_aim),
+    as.character(from_aim) %in% frequent_aims,
+    as.character(to_aim) %in% frequent_aims
+  ) |>
+  mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
+  select(from, to, weight = proportion, count)
+
+# node sizes from total occurrences (as current aim)
+node_totals <- df_transitions_filtered |>
+  count(aims, name = "n_total") |>
+  rename(name = aims) |>
+  mutate(name = as.character(name))
+
+graph <- as_tbl_graph(edges, directed = TRUE) |>
+  left_join(node_totals, by = "name")
+
+ggraph(graph, layout = "fr") +
+  geom_edge_fan(
+    aes(width = weight, alpha = weight),
+    arrow = arrow(length = unit(3, "mm"), type = "closed"),
+    end_cap = circle(5, "mm"),
+    show.legend = TRUE
+  ) +
+  scale_edge_width(range = c(0.5, 3), name = "Proportion") +
+  scale_edge_alpha(range = c(0.4, 0.9), guide = "none") +
+  geom_node_point(aes(size = n_total), color = "steelblue") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  scale_size_continuous(name = "Total occurrences", range = c(3, 12)) +
+  labs(title = "Chain Transition Network",
+       subtitle = paste0("Edges: proportion \u2265 ", min_prop,
+                         "; aims with > ", min_occurrences, " occurrences; self-loops excluded")) +
+  theme_graph()
+```
+
 ## chain description
 
 ```{r chain description}
@@ -1254,12 +1451,18 @@ table_chainlength %>%
 ```{r chain visualization}
 
 ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
-       aes(chain_first_session,id,alpha=chain_last_session-chain_first_session,color=dev_area))+geom_point()+facet_wrap(~dev_area)
+       aes(chain_first_session,id,
+           alpha=chain_last_session-chain_first_session,
+           color=dev_area))+
+  geom_point()+
+  facet_wrap(~dev_area)
 
 ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
-       aes(chain_first_session,weight=chain_last_session-chain_first_session,fill=dev_area))+
+       aes(chain_first_session,weight=chain_last_session-chain_first_session,
+           fill=dev_area))+
   geom_density(aes(y = after_stat(count)), adjust = 1)+ #weighted by occurances
-  labs(x='session number',title = 'density of chains across sessions weighted by chain length')+
+  labs(x='session number',
+       title = 'density of chains across sessions weighted by chain length')+
   facet_wrap(~dev_area)
 
 ```
@@ -1273,19 +1476,40 @@ ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
   - mastery ("aim expert level (0-2)")
 - only consider chains not disrupted by lockdown; complete before or after
 
-```{r chain analysis data preparation}
+```{r chain analysis data inspection}
 
 #describe outcome variables
-psych::describe(df_chains$chain_length)
-psych::describe(df_chains$chain_help_mean)
-psych::describe(df_chains$chain_achieve_mean)
-psych::describe(df_chains$chain_mastery_mean)
+selected_vars<-names(df_chains) %in% c('chain_length','chain_help_mean','chain_achieve_mean','chain_mastery_mean')
+desc<-apply(df_chains[,..selected_vars],2,psych::describe)
+desc<-do.call(rbind,desc)
+
+desc_tbl <- desc %>%
+  tibble::rownames_to_column("variable") %>%
+  select(variable, n, mean, sd, median, min, max, skew, kurtosis) %>%
+  mutate(across(where(is.numeric), ~ round(.x, 2)))
+
+description<-c('predictor','outcome: "Zielebene gemeistert"','outcome: "Ausmaß Hilfestellung"','outcome: "Expertenlevel/einzelne Ziele"')
+
+desc_tbl<-cbind(description,desc_tbl)
+
+desc_tbl %>%
+  kbl(caption = "descriptive statistics: core variables") %>%
+  kable_classic(full_width = T, html_font = "Cambria") 
 
 #non-normal distribution
-hist(df_chains$chain_length)
-hist(df_chains$chain_help_mean)
-hist(df_chains$chain_achieve_mean)
-hist(df_chains$chain_mastery_mean)
+par(mfrow = c(2, 2))
+
+hist(df_chains$chain_length,main='chain length',xlab='chain_length')
+hist(df_chains$chain_help_mean,main='Ausmaß Hilfestellung',xlab='chain_help_mean (mean of session chain)')
+hist(df_chains$chain_achieve_mean,main='Zielebene gemeistert',xlab='chain_achieve_mean (mean of session chain)')
+hist(df_chains$chain_mastery_mean,main='Expertenlevel / einzelne Ziele',xlab='chain_mastery_mean (mean of session chain)')
+
+par(mfrow = c(1, 1))
+
+```
+
+
+```{r chain analysis data preparation}
 
 #prepare data 
 lmm_data<-df_chains[df_chains$chain_after_lockdown_percentage %in% c(0,1),]
@@ -1306,27 +1530,60 @@ lmm_summary %>%
 
 ```
 
-### linear mixed models
+### linear mixed models 
 
-```{r chain analysis frequentist}
+#### LMM help {#linear-mixed-help}
 
-#core models
+```{r chain analysis frequentist help mean}
+
+#mean
 lmm<-lmer(scale(chain_help_mean)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
             as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
-fun_table_lmm(lmm,caption="help outcome: effect of chain length")
+fun_table_lmm(lmm,caption="help as mean across sessions: effect of chain length")
 
 plot(lmm)
 qqnorm(resid(lmm))
 qqline(resid(lmm))
 
+#last
+lmm<-lmer(scale(chain_help_last)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="help in last session of chain: effect of chain length")
+
+plot(lmm)
+qqnorm(resid(lmm))
+qqline(resid(lmm))
+
+
+```
+
+#### LMM achieve {#linear-mixed-achieve}
+
+```{r chain analysis frequentist achieve}
+
+#mean
 lmm<-lmer(scale(chain_achieve_mean)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
             as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
-fun_table_lmm(lmm,caption="achieve outcome: effect of chain length")
+fun_table_lmm(lmm,caption="achieve as mean across sessions: effect of chain length")
 
 plot(lmm)
 qqnorm(resid(lmm))
 qqline(resid(lmm))
 
+#last
+lmm<-lmer(scale(chain_achieve_last)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="achieve in last session of chain: effect of chain length")
+
+plot(lmm)
+qqnorm(resid(lmm))
+qqline(resid(lmm))
+
+```
+
+#### LMMM mastery {#linear-mixed-mastery}
+
+```{r chain analysis frequentist mastery}
 
 lmm<-lmer(scale(chain_mastery_mean)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
             as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
@@ -1337,9 +1594,21 @@ qqnorm(resid(lmm))
 qqline(resid(lmm))
 
 
+lmm_data$chain_mastery_last<-as.numeric(lmm_data$chain_expertlevel_last)
+table(lmm_data$chain_mastery_last,lmm_data$chain_expertlevel_last)
+
+lmm<-lmer(scale(chain_mastery_last)~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
+            as.factor(chain_after_lockdown_percentage)+(1|id),data=lmm_data)
+fun_table_lmm(lmm,caption="mastery outcome: effect of chain length")
+
+plot(lmm)
+qqnorm(resid(lmm))
+qqline(resid(lmm))
+
+
 ```
 
-### linear mixed models - common dev areas {chain-analysis-restricted}
+### linear mixed models - common dev areas {#chain-analysis-restricted}
 
 - only extract the most common developmental areas
 - effects are confirmed when data is restricted to three most common dev areas
@@ -1365,7 +1634,7 @@ fun_table_lmm(lmm,caption="mastery outcome: effect of chain length")
 
 ```
 
-### Bayesian ordinal mixed model
+### Bayesian ordinal mixed model {#Bayesian-ordinal}
 
 - assumes ordinal data
 - consider the last session in a chain and its rating
@@ -1411,7 +1680,24 @@ print('a 1 SD increase in chain length is associated with about a 18% increase i
 exp(0.17)
 
 
-####need to compute chain_mastery_last
+####chain_mastery_last
+
+# lmm_data$chain_expertlevel_last<-ordered(lmm_data$chain_expertlevel_last, c('beginner','intermediate','expert'))
+# fit3<-brm(chain_expertlevel_last~scale(chain_length)+scale(nonverbal_iq)+gender+scale(agedemo)+
+#             as.factor(chain_after_lockdown_percentage)+(1|id),
+#          data=lmm_data,
+#          family = cumulative('logit'),
+#          chains = 4,
+#          cores = 4
+#          )
+# 
+# summary(fit3)
+# saveRDS(fit3, file = paste0(getwd(),"/session data/data/brms_model_chain_mastery.rds"))
+
+fit3 <- readRDS(paste0(root_path,"/session data/data/brms_model_chain_mastery.rds"))
+summary(fit3)
+print('a 1 SD increase in chain length is not associated with change in odds of being in another mastery level')
+exp(-0.02)
 
 ```
 
