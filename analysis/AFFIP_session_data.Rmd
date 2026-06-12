@@ -16,22 +16,7 @@ editor_options:
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
-# #required packages
-# require(ggplot2) #visualization
-# require(kableExtra) #tables
-# require(data.table) #rbindlist
-# require(cluster) #clustering
-# require(pbapply) #progres bar for apply functions
-# require(DiagrammeR) #flowchart
-# require(lme4) #chain analysis
-# require(lmerTest) #chain analysis
-# require(brms) #chain analysis - Bayesian
-# require(dplyr) #mutate
-# library(tidygraph) #network visualization
-# library(ggraph) #network visualization
-# library(igraph) #network visualization
-
-
+#required packages
 pkgs <- c("ggplot2", #visualization
          "kableExtra", # tables
          "data.table", # rbindlist
@@ -44,7 +29,8 @@ pkgs <- c("ggplot2", #visualization
          "dplyr", #mutate
          "tidygraph", #network visualization
          "ggraph", #network visualization
-         "igraph" #network visualization
+         "igraph", #network visualization
+         "tidytext"
          )
 
 # check if required packages are installed
@@ -72,7 +58,7 @@ root_path<-"C:/Users/nico/Nextcloud/KGU/A-FFIP"
 
 ```
 
-analysis of the session data in the A-FFIP randomized-controlled trial. Therapist filed a form on each therapy session for each child. this included information on the A-FFIP [therapy aims](#therapy-aims) (developmental area, aims, expert level) worked on. the therapist also rated [aim outcomes](#outcome-variables) (help needed, aim mastery). The current analysis investigates whether therapy aims cluster across participants and which determinants define aim outcomes. This is achieved by concatenating sessions into [therapy aim chains](#aim-chains) based on linear mixed models, hierarchical clustering, and Bayesian Oridnal Mixed models 
+analysis of the session data in the [A-FFIP randomized-controlled trial](https://doi.org/10.1111/jcpp.14162). Therapist filled a form on each therapy session for each child. This included information on the A-FFIP intervention [therapy aims](#therapy-aims) (developmental area, aims, expert level) that were worked on in that session. The therapist also rated [aim outcomes](#outcome-variables) (help needed, aim mastery). The current analysis investigates whether therapy aims cluster across participants and which determinants define aim outcomes. This is achieved by concatenating sessions into [therapy aim chains](#aim-chains) based on linear mixed models, hierarchical clustering, and Bayesian Oridnal Mixed models. Further an investigation of [transitions](#chain-transitions) in therapy aims 
 
 # summary 
 
@@ -105,10 +91,10 @@ analysis of the session data in the A-FFIP randomized-controlled trial. Therapis
   - siehe [Clustering](#clustering-aims) 
   - es gibt [5 Cluster](#cluster-first-aims-outcome) von Zielen mit denen begonnen wird.
     - n=21: eye contact + action planning
-    - n=13 eye contact + attentional control
-    - n=11 eye contact + expressive language
-    - n=12 expressive langugae extended + imitation
-    - n=4 attention control + gaze following
+    - n=13: eye contact + attentional control
+    - n=11: eye contact + expressive language
+    - n=12: expressive langugae extended + imitation
+    - n=4: attention control + gaze following
   - siehe [moderating factors](#moderating-factors-clusters) - Cluster sind nicht abhängig von demographischen Variablen 
   
 **4.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?**
@@ -174,10 +160,14 @@ analysis of the session data in the A-FFIP randomized-controlled trial. Therapis
   - Markov chains for chain transitions?
   - expert level analysis for chains?
   	
-# raw data load
+
+
+# raw data
 
 - loads the data
 - based on IMBI data set (release: July 2023)
+
+## data load
 
 ```{r load data}
 
@@ -283,14 +273,12 @@ df_iq$develop_age_w<-develop_age_w
 
 ```
 
-# raw data overview
+
+## session properties
 
 - different data frames for:
   - per session properties: df_therapy
   - per aim properties (multiple per session): df_session
-
-## session properties
-
 - session were with caregiver (thcg),
 - coding is derived from: "A-FFIP Studie Case Report Form - Therapiedokumentation"
 - analysis should be limited to: 
@@ -807,9 +795,9 @@ aims_table<-aims_table[,c(1,3,2)]
 
 ```
 
-# first aims 
+# first therapy aims 
 
-- extract first session per participant´and according aims
+- extract first session per participant and according aims
 - remove introduction sessions
 - the number of aims in the first session can be more than one per child 
 
@@ -858,9 +846,9 @@ table_aimspart<-lapply(table_aimspart,function(x){
 
 table_aimspart<-rbind.data.frame(table_aimspart)
 
-table_aimspart<-data.frame(t(table_aimspart))
-names(table_aimspart)<-paste('goal',1:length(names(table_aimspart)))
-row.names(table_aimspart)<-substr(row.names(table_aimspart),2,nchar(row.names(table_aimspart)))
+table_aimspart <- data.frame(t(table_aimspart))
+names(table_aimspart) <- paste('goal', seq_along(table_aimspart))
+row.names(table_aimspart) <- substr(row.names(table_aimspart), 2, nchar(row.names(table_aimspart)))
 
 print('discussion point: Factor in the number of aims per participant?')
 
@@ -1009,10 +997,10 @@ with(df_firstaims_uniqueID,cor.test(ses_edumean_t1, sessno, method = "spearman",
 ```{r first aim clustering, fig.width=10, fig.height=6}
 
 # Cut into clusters (e.g., 3 clusters)
-number_of_clusters<-5
+number_of_clusters<-3
 print(paste('assumed number of clusters:',number_of_clusters))
 
-#translate 
+#translate - 7 first aims by participant
 table_aimspart_factor<-lapply(table_aimspart,as.factor)
 table_aimspart_factor<-data.frame(table_aimspart_factor[1],
                                   table_aimspart_factor[2],
@@ -1130,7 +1118,7 @@ with(df_firstaims_uniqueID, kruskal.test(ses_edumean_t1 ~ start_cluster))
 ```
 
 
-# therapy aims - expert level
+# therapy aims expert level
 
 - expert level defines a type of mastery of a specific aim
 - last number defines expert level (1,2,3)
@@ -1248,7 +1236,7 @@ all_aims<-names(table(droplevels(single_participant$aims)))
 
 #identifies chains for participant - loops across all aims of a participant
 single_participant_chains<-list()
-for(i in 1:length(all_aims)){
+for(i in seq_along(all_aims)){
 single_participant_single_aim<-single_participant[single_participant$aims==all_aims[i],] 
 # Identify breaks
 group_id <- cumsum(c(TRUE, diff(single_participant_single_aim$sessno) != 1))
@@ -1257,14 +1245,14 @@ chains <- split(single_participant_single_aim, group_id)
 #apply fun_chain_metrics to each list element
 chains_of_single_aim<-lapply(chains,fun_chain_metrics)
 #return to data.frame
-chains_of_single_aim<-rbindlist(chains_of_single_aim)
+chains_of_single_aim<-data.table::rbindlist(chains_of_single_aim)
 #retrieve number of chains for single aim
-chains_of_single_aim$aim_chain_nr<-1:nrow(chains_of_single_aim)
+chains_of_single_aim$aim_chain_nr <- seq_len(nrow(chains_of_single_aim))
 single_participant_chains[[i]]<-chains_of_single_aim
 }
 
 names(single_participant_chains)<-all_aims #names list of chains by aims
-single_participant_chains<-rbindlist(single_participant_chains) #turn list of chains to data.frame  
+single_participant_chains<-data.table::rbindlist(single_participant_chains) #turn list of chains to data.frame  
 return(single_participant_chains)
 
 }
@@ -1297,130 +1285,6 @@ df_chains$chain_mastery_mean<-with(df_chains,
 #remove chain length < 2 (removes 50% of data)
 df_chains<-df_chains[df_chains$chain_length>1,]
 
-```
-
-##chain transitions
-
-- retrieves the aim of the next and previous chain
-- previous and next chains are defined by lower or higher therapy session number in the first session of a chain
-
-```{r add prev next chains}
-# add previous / next chain information per participant
-# order chains per participant by starting session and compute lag/lead
-df_chains <- df_chains %>%
-  dplyr::group_by(id) %>%
-  dplyr::arrange(chain_first_session, .by_group = TRUE) %>%
-  dplyr::mutate(
-    prev_chain_aim = dplyr::lag(as.character(aims)),
-    next_chain_aim = dplyr::lead(as.character(aims)),
-    prev_chain_length = dplyr::lag(chain_length),
-    next_chain_length = dplyr::lead(chain_length),
-    prev_chain_dev_area = dplyr::lag(as.character(dev_area_char)),
-    next_chain_dev_area = dplyr::lead(as.character(dev_area_char)),
-    prev_same_aim = ifelse(is.na(prev_chain_aim), NA, prev_chain_aim == as.character(aims)),
-    next_same_aim = ifelse(is.na(next_chain_aim), NA, next_chain_aim == as.character(aims))
-  ) %>%
-  dplyr::ungroup()
-
-```
-
-```{r chain transition matrix}
-# create transition matrix: current aim -> next aim
-# only include chains with non-NA next_chain_aim (i.e., exclude last chains per participant)
-df_transitions <- df_chains[!is.na(df_chains$next_chain_aim), ]
-
-# filter to aims with > 30 total occurrences (either as current or next aim)
-minimal_number_of_occurances<-30
-
-aim_counts <- table(c(as.character(df_transitions$aims), as.character(df_transitions$next_chain_aim)))
-common_aims <- names(aim_counts[aim_counts > minimal_number_of_occurances])
-
-df_transitions_filtered <- df_transitions[
-  (as.character(df_transitions$aims) %in% common_aims) & 
-  (as.character(df_transitions$next_chain_aim) %in% common_aims), 
-]
-
-cat("Filtered to", length(common_aims), "aims with >", minimal_number_of_occurances, "total occurrences\n")
-cat("Remaining transitions:", nrow(df_transitions_filtered), "out of", nrow(df_transitions), "\n\n")
-
-# build transition matrix (count)
-transition_matrix_count <- table(df_transitions_filtered$aims, df_transitions_filtered$next_chain_aim)
-
-# convert to proportions (row-wise: probability of transitioning FROM each aim)
-transition_matrix_prop <- prop.table(transition_matrix_count, margin = 1)
-
-# round for display
-transition_matrix_prop_display <- round(transition_matrix_prop, 3)
-
-# display as kable
-transition_matrix_prop_display %>%
-  kbl(caption = "Chain transition probabilities (aims with > 50 occurrences): likelihood of transitioning FROM aim (rows) TO aim (columns)") %>%
-  kable_classic(full_width = FALSE, html_font = "Cambria")
-
-# visualize as heatmap
-transition_matrix_long <- as.data.frame.table(transition_matrix_count)
-names(transition_matrix_long) <- c('from_aim', 'to_aim', 'count')
-transition_matrix_long$proportion <- as.data.frame.table(transition_matrix_prop)[, 3]
-
-ggplot(transition_matrix_long, aes(x = to_aim, y = from_aim, fill = proportion)) +
-  geom_tile(color = 'white') +
-  scale_fill_gradient(low = 'white', high = 'steelblue') +
-  geom_text(aes(label = count), size = 3) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
-  labs(title = 'Chain Transitions (aims with > 50 occurrences): Heatmap of Aim Sequences',
-       x = 'Next Aim', y = 'Current Aim', fill = 'Proportion')
-
-# summary statistics
-cat("\nTransition Summary Statistics:\n")
-cat("Total chain transitions (filtered):", nrow(df_transitions_filtered), "\n")
-cat("Percentage of chains that repeat same aim:", 
-    round(mean(df_transitions_filtered$next_same_aim, na.rm = TRUE) * 100, 1), "%\n")
-
-```
-
-```{r chain transition network, message=FALSE, warning=FALSE, fig.width=10, fig.height=9}
-
-# thresholds
-min_prop <- 0.1
-min_occurrences <- 100
-
-frequent_aims <- names(aim_counts[aim_counts > min_occurrences])
-
-edges <- transition_matrix_long |>
-  filter(
-    proportion >= min_prop,
-    as.character(from_aim) != as.character(to_aim),
-    as.character(from_aim) %in% frequent_aims,
-    as.character(to_aim) %in% frequent_aims
-  ) |>
-  mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
-  select(from, to, weight = proportion, count)
-
-# node sizes from total occurrences (as current aim)
-node_totals <- df_transitions_filtered |>
-  count(aims, name = "n_total") |>
-  rename(name = aims) |>
-  mutate(name = as.character(name))
-
-graph <- as_tbl_graph(edges, directed = TRUE) |>
-  left_join(node_totals, by = "name")
-
-ggraph(graph, layout = "fr") +
-  geom_edge_fan(
-    aes(width = weight, alpha = weight),
-    arrow = arrow(length = unit(3, "mm"), type = "closed"),
-    end_cap = circle(5, "mm"),
-    show.legend = TRUE
-  ) +
-  scale_edge_width(range = c(0.5, 3), name = "Proportion") +
-  scale_edge_alpha(range = c(0.4, 0.9), guide = "none") +
-  geom_node_point(aes(size = n_total), color = "steelblue") +
-  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
-  scale_size_continuous(name = "Total occurrences", range = c(3, 12)) +
-  labs(title = "Chain Transition Network",
-       subtitle = paste0("Edges: proportion \u2265 ", min_prop,
-                         "; aims with > ", min_occurrences, " occurrences; self-loops excluded")) +
-  theme_graph()
 ```
 
 ## chain description
@@ -1523,8 +1387,8 @@ variable<-c('intercept','chain length','full IQ','gender','age','after lockdown'
 lmm_summary<-data.frame(variable,lmm_summary)
 
 lmm_summary %>%
-  kbl(caption = caption,row.names = F) %>%
-  kable_classic(full_width = F, html_font = "Cambria")
+  kableExtra::kbl(caption = caption,row.names = F) %>%
+  kableExtra::kable_classic(full_width = F, html_font = "Cambria") 
 
 }
 
@@ -1701,9 +1565,684 @@ exp(-0.02)
 
 ```
 
+# transitions of aims {#chain-transitions}
 
+- aim chains occur across the therapy, we want to extract aim transitions between chains
+- retrieves the aim of the next and previous chain
+- previous and next chains are defined by lower or higher therapy session number in the last session of a chain
+
+```{r add prev next chains}
+# add previous / next chain information per participant
+# order chains per participant by starting session and compute lag/lead
+df_chains <- df_chains %>%
+  dplyr::group_by(id) %>%
+  dplyr::arrange(chain_last_session, .by_group = TRUE) %>%
+  dplyr::mutate(
+    prev_chain_aim = dplyr::lag(as.character(aims)),
+    next_chain_aim = dplyr::lead(as.character(aims)),
+    prev_chain_length = dplyr::lag(chain_length),
+    next_chain_length = dplyr::lead(chain_length),
+    prev_chain_dev_area = dplyr::lag(as.character(dev_area_char)),
+    next_chain_dev_area = dplyr::lead(as.character(dev_area_char)),
+    prev_same_aim = ifelse(is.na(prev_chain_aim), NA, prev_chain_aim == as.character(aims)),
+    next_same_aim = ifelse(is.na(next_chain_aim), NA, next_chain_aim == as.character(aims))
+  ) %>%
+  dplyr::ungroup()
+
+```
+
+## transitions across participants
+
+- general transitions across all participants
+- overall to many transitions, this requires filtering below
+
+```{r chain transition matrix}
+# create transition matrix: current aim -> next aim
+# only include chains with non-NA next_chain_aim (i.e., exclude last chains per participant)
+df_transitions <- df_chains[!is.na(df_chains$next_chain_aim), ]
+
+# build transition matrix (count)
+transition_matrix_count <- table(df_transitions$aims, df_transitions$next_chain_aim)
+
+# order rows and columns by total occurrences (descending)
+transition_matrix_count<-transition_matrix_count[order(rowSums(transition_matrix_count), 
+                              decreasing = TRUE), 
+                        order(colSums(transition_matrix_count), decreasing = TRUE)]
+
+# convert to proportions (row-wise: probability of transitioning FROM each aim)
+transition_matrix_prop <- prop.table(transition_matrix_count, margin = 1)
+
+# round for display
+transition_matrix_prop_display <- round(transition_matrix_prop, 2)
+
+# display as kable
+transition_matrix_prop_display %>%
+  kbl(caption = "Chain transition probabilities: likelihood of transitioning FROM aim (rows) TO aim (columns) order by total occurances") %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+
+```
+
+- filtered based on a minimum number of occurrences (5% of all transitions)
+- to focus on more prevalent transitions
+
+```{r transition filter}
+
+# filter transitions based on minimum occurrences
+# inclusion threshold: aims must appear in at least 5% of all transitions
+minimal_number_of_occurances <- round(0.05 * nrow(df_transitions))
+
+aim_counts <- table(c(as.character(df_transitions$aims), as.character(df_transitions$next_chain_aim)))
+common_aims <- names(aim_counts[aim_counts > minimal_number_of_occurances])
+
+df_transitions_filtered <- df_transitions[
+  (as.character(df_transitions$aims) %in% common_aims) & 
+  (as.character(df_transitions$next_chain_aim) %in% common_aims), 
+]
+
+cat("Filtered to", length(common_aims), "aims with >", minimal_number_of_occurances, "total occurrences\n")
+cat("Remaining transitions:", nrow(df_transitions_filtered), "out of", nrow(df_transitions), "\n\n")
+cat("Percentage of chains that repeat same aim:", 
+    round(mean(df_transitions_filtered$next_same_aim, na.rm = TRUE) * 100, 1), "%\n")
+cat("Percentage of chains that switch to different aim:", 
+    round(mean(df_transitions_filtered$next_same_aim == FALSE, na.rm = TRUE) * 100, 1), "%\n")
+
+```
+
+- transition heatmap shows the occurances and proportion of transitions
+
+```{r transition heatmap, fig.width=12, fig.height=12}
+
+# rebuild count and proportion matrices from filtered data
+transition_matrix_count <- table(df_transitions_filtered$aims, df_transitions_filtered$next_chain_aim)
+transition_matrix_prop  <- prop.table(transition_matrix_count, margin = 1)
+
+# prepare long format
+transition_matrix_long <- as.data.frame.table(transition_matrix_count)
+names(transition_matrix_long) <- c('from_aim', 'to_aim', 'count')
+transition_matrix_long$proportion <- as.data.frame.table(transition_matrix_prop)[, 3]
+transition_matrix_long <- transition_matrix_long[
+  !is.na(transition_matrix_long$from_aim) & !is.na(transition_matrix_long$to_aim), ]
+
+# order rows and columns by total occurrences (descending)
+aim_order_overall <- names(sort(aim_counts[names(aim_counts) %in% common_aims],
+                                decreasing = TRUE))
+transition_matrix_long <- transition_matrix_long |>
+  dplyr::mutate(
+    from_aim = factor(from_aim, levels = aim_order_overall),
+    to_aim   = factor(to_aim,   levels = aim_order_overall)
+  )
+
+# top 10 most prevalent transitions weighted by count * proportion
+# (rewards transitions that are both frequent and conditionally probable)
+transition_matrix_long |>
+  dplyr::filter(as.character(from_aim) != as.character(to_aim)) |>
+  dplyr::mutate(
+    score = count * proportion,
+    proportion = round(proportion, 3)
+  ) |>
+  dplyr::arrange(dplyr::desc(score)) |>
+  dplyr::slice_head(n = 10) |>
+  dplyr::select(
+    `From Aim`   = from_aim,
+    `To Aim`     = to_aim,
+    `Count`      = count,
+    `Proportion` = proportion,
+    `Score (n × p)` = score
+  ) |>
+  dplyr::mutate(`Score (n × p)` = round(`Score (n × p)`, 1)) |>
+  kbl(caption = "Top 10 most prevalent transitions weighted by count × row-proportion (self-transitions excluded)") |>
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+
+
+# visualize as heatmap
+ggplot(transition_matrix_long, aes(x = to_aim, y = from_aim, fill = proportion)) +
+  geom_tile(color = 'white') +
+  scale_fill_gradient(low = 'white', high = 'steelblue') +
+  geom_text(aes(label = count), size = 3) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  labs(title = paste('Chain Transitions (aims with >',
+                     minimal_number_of_occurances,
+                     'occurrences) From current aim (row) to next aim (column)',
+       x = 'Next Aim', y = 'Current Aim', fill = 'transition likelihood',
+       caption = 'Grey marked rows indicate that transitions to other aims were rare with less than 50 occurrences.'))
+
+```
+
+## chain transition network
+
+```{r chain transition network, message=FALSE, warning=FALSE, fig.width=10, fig.height=9}
+
+# thresholds
+min_prop <- 0.1
+min_occurrences <- round(0.05 * nrow(df_transitions_filtered))
+
+frequent_aims <- names(aim_counts[aim_counts > min_occurrences])
+
+edges <- transition_matrix_long |>
+  filter(
+    proportion >= min_prop,
+    as.character(from_aim) != as.character(to_aim),
+    as.character(from_aim) %in% frequent_aims,
+    as.character(to_aim) %in% frequent_aims
+  ) |>
+  mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
+  select(from, to, weight = proportion, count)
+
+# lookup: aim -> developmental area (using full descriptive labels)
+aim_dev_lookup <- df_chains |>
+  dplyr::distinct(aims, dev_area) |>
+  dplyr::mutate(name = as.character(aims), dev_area = as.character(dev_area)) |>
+  dplyr::select(name, dev_area)
+
+dev_area_levels <- sort(unique(aim_dev_lookup$dev_area))
+dev_area_colors <- setNames(RColorBrewer::brewer.pal(length(dev_area_levels), "Set2"),
+                            dev_area_levels)
+
+# node sizes from total occurrences (as current aim), with dev_area
+node_totals <- df_transitions_filtered |>
+  count(aims, name = "n_total") |>
+  rename(name = aims) |>
+  mutate(name = as.character(name)) |>
+  left_join(aim_dev_lookup, by = "name")
+
+graph <- as_tbl_graph(edges, directed = TRUE) |>
+  left_join(node_totals, by = "name")
+
+ggraph(graph, layout = "fr") +
+  geom_edge_fan(
+    aes(width = weight, alpha = weight),
+    arrow = arrow(length = unit(3, "mm"), type = "closed"),
+    end_cap = circle(5, "mm"),
+    show.legend = TRUE
+  ) +
+  scale_edge_width(range = c(0.5, 3), name = "Proportion") +
+  scale_edge_alpha(range = c(0.4, 0.9), guide = "none") +
+  geom_node_point(aes(size = n_total, color = dev_area)) +
+  geom_node_text(aes(label = n_total), size = 2.5, color = "white", fontface = "bold") +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  scale_size_continuous(name = "Total occurrences", range = c(4, 14)) +
+  scale_color_manual(values = dev_area_colors, name = "Developmental Area",
+                     drop = FALSE) +
+  labs(title = "Chain Transition Network",
+       subtitle = paste0("Edges: proportion \u2265 ", min_prop,
+                         "; aims with > ", min_occurrences, " occurrences; self-loops excluded")) +
+  theme_graph()
+```
+
+## transitions between clusters
+
+```{r cluster-prep, message=FALSE, warning=FALSE}
+library(ggraph)
+library(tidygraph)
+
+min_prop_cl <- 0.10
+
+# lookup: aim -> developmental area
+aim_dev_lookup <- df_chains |>
+  dplyr::distinct(aims, dev_area) |>
+  dplyr::mutate(name = as.character(aims), dev_area = as.character(dev_area)) |>
+  dplyr::select(name, dev_area)
+
+# consistent color palette across all cluster plots
+dev_area_levels <- sort(unique(aim_dev_lookup$dev_area))
+dev_area_colors <- setNames(RColorBrewer::brewer.pal(length(dev_area_levels), "Set2"),
+                            dev_area_levels)
+
+cluster_ids <- sort(unique(as.character(df_chains$start_cluster)))
+
+# build all per-cluster data once; reused by the three display chunks below
+cluster_data <- list()
+
+for (cl in cluster_ids) {
+
+  df_cl    <- df_chains[as.character(df_chains$start_cluster) == cl, ]
+  df_tr_cl <- df_cl[!is.na(df_cl$next_chain_aim), ]
+
+  min_occurrences_cl <- round(0.05 * nrow(df_tr_cl))
+
+  aim_counts_cl  <- table(c(as.character(df_tr_cl$aims),
+                             as.character(df_tr_cl$next_chain_aim)))
+  common_aims_cl <- names(aim_counts_cl[aim_counts_cl > min_occurrences_cl])
+
+  df_tr_filt <- df_tr_cl[
+    (as.character(df_tr_cl$aims)           %in% common_aims_cl) &
+    (as.character(df_tr_cl$next_chain_aim) %in% common_aims_cl), ]
+
+  if (nrow(df_tr_filt) == 0) {
+    cluster_data[[cl]] <- NULL
+    next
+  }
+
+  tm_count <- table(df_tr_filt$aims, df_tr_filt$next_chain_aim)
+  tm_prop  <- prop.table(tm_count, margin = 1)
+
+  tm_long <- as.data.frame.table(tm_count)
+  names(tm_long) <- c("from_aim", "to_aim", "count")
+  tm_long$proportion <- as.data.frame.table(tm_prop)[, 3]
+  tm_long <- tm_long[!is.na(tm_long$from_aim) & !is.na(tm_long$to_aim), ]
+
+  aim_order_cl <- names(sort(aim_counts[names(aim_counts) %in% common_aims_cl],
+                             decreasing = TRUE))
+  tm_long <- tm_long |>
+    dplyr::mutate(
+      from_aim = factor(from_aim, levels = aim_order_cl),
+      to_aim   = factor(to_aim,   levels = aim_order_cl)
+    )
+
+  edges_cl <- tm_long |>
+    dplyr::filter(
+      proportion >= min_prop_cl,
+      as.character(from_aim) != as.character(to_aim)
+    ) |>
+    dplyr::mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
+    dplyr::select(from, to, weight = proportion, count)
+
+  node_totals_cl <- df_tr_filt |>
+    dplyr::count(aims, name = "n_total") |>
+    dplyr::rename(name = aims) |>
+    dplyr::mutate(name = as.character(name)) |>
+    dplyr::left_join(aim_dev_lookup, by = "name")
+
+  graph_cl <- if (nrow(edges_cl) > 0) {
+    as_tbl_graph(edges_cl, directed = TRUE) |>
+      dplyr::left_join(node_totals_cl, by = "name")
+  } else NULL
+
+  cluster_data[[cl]] <- list(
+    tm_long            = tm_long,
+    edges_cl           = edges_cl,
+    graph_cl           = graph_cl,
+    node_totals_cl     = node_totals_cl,
+    min_occurrences_cl = min_occurrences_cl,
+    common_aims_cl     = common_aims_cl,
+    n_transitions      = nrow(df_tr_cl)
+  )
+}
+```
+
+### Top 10 transitions per cluster
+
+```{r cluster-tables, results='asis'}
+cat('<div style="display:flex; flex-wrap:wrap; gap:1.5em; align-items:flex-start;">')
+
+for (cl in cluster_ids) {
+  d <- cluster_data[[cl]]
+  cat('<div>')
+
+  if (is.null(d)) {
+    cat(paste0("<p><strong>Cluster ", cl, ":</strong> insufficient data</p>"))
+  } else {
+    tbl <- d$tm_long |>
+      dplyr::filter(as.character(from_aim) != as.character(to_aim)) |>
+      dplyr::mutate(score = count * proportion, proportion = round(proportion, 3)) |>
+      dplyr::arrange(dplyr::desc(score)) |>
+      dplyr::slice_head(n = 10) |>
+      dplyr::select(
+        `From` = from_aim,
+        `To`   = to_aim,
+        `n`    = count,
+        `p`    = proportion,
+        `n×p`  = score
+      ) |>
+      dplyr::mutate(`n×p` = round(`n×p`, 1)) |>
+      kbl(format = "html", caption = paste0("Cluster ", cl)) |>
+      kable_classic(full_width = FALSE, html_font = "Cambria")
+    print(tbl)
+  }
+
+  cat('</div>')
+}
+
+cat('</div>')
+```
+
+### Transition heatmaps per cluster
+
+::: {style="overflow-x: auto; white-space: nowrap; padding-bottom: 8px;"}
+
+```{r cluster-heatmaps, message=FALSE, warning=FALSE, fig.width=18, fig.height=6, out.width="4200px", dpi=100}
+heat_plots <- lapply(cluster_ids, function(cl) {
+  d <- cluster_data[[cl]]
+  if (is.null(d)) return(ggplot() + labs(title = paste0("Cluster ", cl, ": no data")))
+
+  ggplot(d$tm_long, aes(x = to_aim, y = from_aim, fill = proportion)) +
+    geom_tile(color = "white") +
+    scale_fill_gradient(low = "white", high = "steelblue") +
+    geom_text(aes(label = count), size = 2.5) +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5),
+          axis.text   = element_text(size = 8)) +
+    labs(
+      title   = paste0("Cluster ", cl),
+      x       = "Next Aim", y = "Current Aim", fill = "Proportion",
+      caption = paste0("Threshold: >", d$min_occurrences_cl, " occurrences (5% of n=",
+                       d$n_transitions, ")")
+    )
+})
+
+patchwork::wrap_plots(heat_plots, ncol = number_of_clusters) +
+  patchwork::plot_layout(guides = "collect") +
+  patchwork::plot_annotation(title = "Chain Transition Heatmaps by Cluster")
+```
+
+:::
+
+### Transition networks per cluster
+
+```{r cluster-networks, message=FALSE, warning=FALSE, fig.width=14, fig.height=30}
+
+net_plots <- lapply(cluster_ids, function(cl) {
+  d <- cluster_data[[cl]]
+  if (is.null(d) || is.null(d$graph_cl)) {
+    return(ggplot() + labs(title = paste0("Cluster ", cl, ": no data")) + theme_void())
+  }
+
+  ggraph(d$graph_cl, layout = "fr") +
+    geom_edge_fan(
+      aes(width = weight, alpha = weight),
+      arrow    = arrow(length = unit(3, "mm"), type = "closed"),
+      end_cap  = circle(5, "mm"),
+      show.legend = TRUE
+    ) +
+    scale_edge_width(range = c(0.5, 3), name = "Proportion") +
+    scale_edge_alpha(range = c(0.4, 0.9), guide = "none") +
+    geom_node_point(aes(size = n_total, color = dev_area)) +
+    geom_node_text(aes(label = n_total), size = 2.5, color = "white", fontface = "bold") +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_size_continuous(name = "Total occurrences", range = c(4, 14)) +
+    scale_color_manual(values = dev_area_colors, name = "Developmental Area",
+                       drop = FALSE) +
+    labs(title = paste0("Cluster ", cl)) +
+    theme_graph()
+})
+
+patchwork::wrap_plots(net_plots, nrow = number_of_clusters) +
+  patchwork::plot_layout(guides = "collect") +
+  patchwork::plot_annotation(
+    title    = "Chain Transition Networks by Cluster",
+    subtitle = paste0("Edges: proportion \u2265 ", min_prop_cl, "; self-loops excluded")
+  )
+
+```
+
+
+# transition network comparison 
+
+```{r centrality-comparison, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
+
+# ── extract centrality metrics from pre-built cluster_data ─────────────────
+centrality_list <- list()
+net_stats_list  <- list()
+
+for (cl in cluster_ids) {
+
+  d <- cluster_data[[cl]]
+  if (is.null(d) || is.null(d$graph_cl)) next
+
+  g_c <- d$graph_cl
+
+  # node-level centrality metrics
+  centrality_list[[cl]] <- g_c |>
+    dplyr::mutate(
+      # weighted in/out-strength: sum of proportions on incoming/outgoing edges
+      in_strength  = centrality_degree(mode = "in",  weights = weight),
+      out_strength = centrality_degree(mode = "out", weights = weight),
+      # unweighted betweenness: structural bridge role
+      betweenness  = centrality_betweenness(directed = TRUE),
+      # pagerank with proportion weights: overall flow-weighted importance
+      pagerank     = centrality_pagerank(weights = weight)
+    ) |>
+    as_tibble() |>
+    dplyr::mutate(cluster = paste0("Cluster ", cl))
+
+  # network-level summary stats
+  ig_c <- igraph::as.igraph(g_c)
+  net_stats_list[[cl]] <- tibble::tibble(
+    Cluster             = paste0("Cluster ", cl),
+    Nodes               = igraph::vcount(ig_c),
+    Edges               = igraph::ecount(ig_c),
+    Density             = round(igraph::edge_density(ig_c), 3),
+    `Mean betweenness`  = round(mean(igraph::betweenness(ig_c, directed = TRUE)), 2),
+    `Mean PageRank`     = round(mean(igraph::page_rank(ig_c,
+                                       weights = igraph::E(ig_c)$weight)$vector), 4)
+  )
+}
+
+all_centrality <- dplyr::bind_rows(centrality_list)
+net_stats      <- dplyr::bind_rows(net_stats_list)
+```
+
+```{r centrality-net-table}
+# ── network-level summary table ────────────────────────────────────────────
+net_stats |>
+  kbl(caption = "Network-level properties per cluster") |>
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+```
+
+```{r centrality-pagerank, fig.width=18, fig.height=6}
+# ── PageRank heatmap: aims × clusters ─────────────────────────────────────
+# show aims that appear in at least two clusters, ranked by mean PageRank
+top_aims_pr <- all_centrality |>
+  dplyr::group_by(name) |>
+  dplyr::summarise(mean_pr = mean(pagerank), n_clusters = dplyr::n()) |>
+  dplyr::filter(n_clusters >= 2) |>
+  dplyr::slice_max(mean_pr, n = 20) |>
+  dplyr::pull(name)
+
+all_centrality |>
+  dplyr::filter(name %in% top_aims_pr) |>
+  dplyr::mutate(name = forcats::fct_reorder(name, pagerank, mean)) |>
+  ggplot(aes(x = cluster, y = name, fill = pagerank)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient(low = "white", high = "steelblue", name = "PageRank") +
+  facet_grid(dev_area ~ ., scales = "free_y", space = "free_y") +
+  labs(
+    title = "PageRank by aim and cluster",
+    subtitle = "Top 20 aims present in \u22652 clusters; grouped by developmental area",
+    x = NULL, y = NULL
+  ) +
+  theme(
+    strip.text.y    = element_text(angle = 0, hjust = 0, size = 7),
+    axis.text.y     = element_text(size = 8),
+    panel.spacing.y = unit(2, "pt")
+  )
+```
+
+```{r centrality-betweenness, fig.width=18, fig.height=6}
+# ── betweenness: top 6 bridge nodes per cluster ────────────────────────────
+all_centrality |>
+  dplyr::group_by(cluster) |>
+  dplyr::slice_max(betweenness, n = 6) |>
+  dplyr::ungroup() |>
+  # encode cluster into label so reorder() works within facets
+  dplyr::mutate(label = reorder(paste0(cluster, "___", name), betweenness)) |>
+  ggplot(aes(x = betweenness, y = label, fill = dev_area)) +
+  scale_y_discrete(labels = \(x) sub(".*___", "", x)) +
+  geom_col() +
+  scale_fill_manual(values = dev_area_colors, name = "Developmental Area") +
+  facet_wrap(~ cluster, scales = "free_y", ncol = 3) +
+  labs(
+    title = "Top 6 aims by betweenness centrality per cluster",
+    subtitle = "Betweenness identifies aims acting as bridges between other therapy goals",
+    x = "Betweenness centrality", y = NULL
+  )
+```
+
+## transitions with session progression
+
+- divide session to early (1-30), mid (31-60), late (61-90) therapy
+- compare networks
+
+```{r transitions sessions prepare}
+
+df_chains <- df_chains %>%
+mutate(session_cat = case_when(
+chain_first_session <= 30 ~ "early",
+chain_first_session > 30 & chain_first_session <= 60 ~ "mid",
+chain_first_session > 60 ~ "late",
+TRUE ~ NA_character_
+))
+
+sess_cats <- unique(as.character(df_chains$session_cat))
+
+# build all per-cluster data once; reused by the three display chunks below
+cluster_data <- list()
+
+for (sess in sess_cats) {
+
+  #select one cat
+  df_cl    <- df_chains[as.character(df_chains$session_cat) == sess, ]
+  
+  #at least 5% of occurances
+  min_occurrences_cl <- round(0.05 * nrow(df_cl))
+
+  aim_counts_cl  <- table(c(as.character(df_cl$aims),
+                             as.character(df_cl$next_chain_aim)))
+  common_aims_cl <- names(aim_counts_cl[aim_counts_cl > min_occurrences_cl])
+
+  df_tr_filt <- df_cl[
+    (as.character(df_cl$aims)           %in% common_aims_cl) &
+    (as.character(df_cl$next_chain_aim) %in% common_aims_cl), ]
+
+  if (nrow(df_tr_filt) == 0) {
+    cluster_data[[cl]] <- NULL
+    next
+  }
+
+  tm_count <- table(df_tr_filt$aims, df_tr_filt$next_chain_aim)
+  tm_prop  <- prop.table(tm_count, margin = 1)
+
+  tm_long <- as.data.frame.table(tm_count)
+  names(tm_long) <- c("from_aim", "to_aim", "count")
+  tm_long$proportion <- as.data.frame.table(tm_prop)[, 3]
+  tm_long <- tm_long[!is.na(tm_long$from_aim) & !is.na(tm_long$to_aim), ]
+
+  aim_order_cl <- names(sort(aim_counts[names(aim_counts) %in% common_aims_cl],
+                             decreasing = TRUE))
+  tm_long <- tm_long |>
+    dplyr::mutate(
+      from_aim = factor(from_aim, levels = aim_order_cl),
+      to_aim   = factor(to_aim,   levels = aim_order_cl)
+    )
+
+  edges_cl <- tm_long |>
+    dplyr::filter(
+      proportion >= min_prop_cl,
+      as.character(from_aim) != as.character(to_aim)
+    ) |>
+    dplyr::mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
+    dplyr::select(from, to, weight = proportion, count)
+
+  node_totals_cl <- df_tr_filt |>
+    dplyr::count(aims, name = "n_total") |>
+    dplyr::rename(name = aims) |>
+    dplyr::mutate(name = as.character(name)) |>
+    dplyr::left_join(aim_dev_lookup, by = "name")
+
+  graph_cl <- if (nrow(edges_cl) > 0) {
+    as_tbl_graph(edges_cl, directed = TRUE) |>
+      dplyr::left_join(node_totals_cl, by = "name")
+  } else NULL
+
+  cluster_data[[sess]] <- list(
+    tm_long            = tm_long,
+    edges_cl           = edges_cl,
+    graph_cl           = graph_cl,
+    node_totals_cl     = node_totals_cl,
+    min_occurrences_cl = min_occurrences_cl,
+    common_aims_cl     = common_aims_cl,
+    n_transitions      = nrow(df_tr_cl)
+  )
+}
+
+
+```
+
+### Top 10 transitions per session progression category
+
+```{r cluster-tables sessions, results='asis'}
+cat('<div style="display:flex; flex-wrap:wrap; gap:1.5em; align-items:flex-start;">')
+
+for (sess in sess_cats) {
+  d <- cluster_data[[sess]]
+  cat('<div>')
+
+  if (is.null(d)) {
+    cat(paste0("<p><strong>therapy progression: ", sess, ":</strong> insufficient data</p>"))
+  } else {
+    tbl <- d$tm_long |>
+      dplyr::filter(as.character(from_aim) != as.character(to_aim)) |>
+      dplyr::mutate(score = count * proportion, proportion = round(proportion, 3)) |>
+      dplyr::arrange(dplyr::desc(score)) |>
+      dplyr::slice_head(n = 10) |>
+      dplyr::select(
+        `From` = from_aim,
+        `To`   = to_aim,
+        `n`    = count,
+        `p`    = proportion,
+        `n×p`  = score
+      ) |>
+      dplyr::mutate(`n×p` = round(`n×p`, 1)) |>
+      kbl(format = "html", caption = paste0("therapy progression: ", sess)) |>
+      kable_classic(full_width = FALSE, html_font = "Cambria")
+    print(tbl)
+  }
+
+  cat('</div>')
+}
+
+cat('</div>')
+```
+
+### Transition networks per session progression category
+
+```{r cluster-networks sessions, message=FALSE, warning=FALSE, fig.width=14, fig.height=30}
+
+net_plots <- lapply(sess_cats, function(sess) {
+  d <- cluster_data[[sess]]
+  if (is.null(d) || is.null(d$graph_cl)) {
+    return(ggplot() + labs(title = paste0("Cluster ", sess, ": no data")) + theme_void())
+  }
+
+  ggraph(d$graph_cl, layout = "fr") +
+    geom_edge_fan(
+      aes(width = weight, alpha = weight),
+      arrow    = arrow(length = unit(3, "mm"), type = "closed"),
+      end_cap  = circle(5, "mm"),
+      show.legend = TRUE
+    ) +
+    scale_edge_width(range = c(0.5, 3), name = "Proportion") +
+    scale_edge_alpha(range = c(0.4, 0.9), guide = "none") +
+    geom_node_point(aes(size = n_total, color = dev_area)) +
+    geom_node_text(aes(label = n_total), size = 2.5, color = "white", fontface = "bold") +
+    geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+    scale_size_continuous(name = "Total occurrences", range = c(4, 14)) +
+    scale_color_manual(values = dev_area_colors, name = "Developmental Area",
+                       drop = FALSE) +
+    labs(title = paste0("therapy progression category: ", sess)) +
+    theme_graph()
+})
+
+patchwork::wrap_plots(net_plots, nrow = length(sess_cats)) +
+  patchwork::plot_layout(guides = "collect") +
+  patchwork::plot_annotation(
+    title    = "Chain Transition Networks by therapy progression category",
+    subtitle = paste0("Edges: proportion \u2265 ", min_prop_cl, "; self-loops excluded")
+  )
+
+```
 
 - clustern based on clusters and quality of clusters
 - Prüfung der weiteren Angaben der Therapieziel im Verlauf der Therapie -> Stabilität bzw. Wechsel in andere Kategorie.
 
+```{r comparing clusters}
 
+anova(lmer(chain_length~start_cluster+(1|id),data=df_chains))
+anova(lmer(chain_achieve_last~start_cluster+(1|id),data=df_chains))
+anova(lmer(chain_help_last~start_cluster+(1|id),data=df_chains))
+
+anova(lmer(chain_help_last~start_cluster*chain_length+(1|id),data=df_chains))
+
+hist(df_chains$chain_first_session)
+
+
+```
