@@ -14,7 +14,11 @@ editor_options:
 ---
 
 ```{r setup, include=FALSE}
+
 knitr::opts_chunk$set(echo = TRUE)
+# set global environment for chunks to avoid scoping issues with packages and functions
+knitr::opts_chunk$set(envir = globalenv())
+
 
 #required packages
 pkgs <- c("ggplot2", #visualization
@@ -30,7 +34,12 @@ pkgs <- c("ggplot2", #visualization
          "tidygraph", #network visualization
          "ggraph", #network visualization
          "igraph", #network visualization
-         "tidytext"
+         "tidytext",
+         "markovchain", #markov chain analysis for chain transitions
+         "knitr", #markdown tables
+         "tidyr", #pivot_longer
+         "tibble", #rownames_to_column
+         "SemiMarkov"
          )
 
 # check if required packages are installed
@@ -42,11 +51,11 @@ if (any(installed_packages == FALSE)) {
 }
 
 #loads required packages and gives error if not found
-lapply(pkgs, function(pkg) {
+invisible(lapply(pkgs, function(pkg) {
   if (!require(pkg, character.only = TRUE, quietly = TRUE)) {
     message(paste("Package", pkg, "not found."))
   }
-})
+}))
 
 
 #set theme
@@ -99,8 +108,12 @@ analysis of the session data in the [A-FFIP randomized-controlled trial](https:/
   
 **4.	Wie bauen die Förderbereiche aufeinander auf, von welchem Förderbereich wird zum anderen gewechselt? Gibt es hier spezifische Muster, sind diese vergleichbar zwischen den Kindern oder zeigen verschiedene Gruppen von Kindern in sich ähnliche aber zwischen den Gruppen unterschiedliche Muster? Gibt es hier Zusammenhänge mit Alter, nonverbaler und verbaler Entwicklung sowie autistischer Kernsymptomatik und anderen Verhaltensweisen?**
 
-  - Diskussionspunkt: bisher liegt Fokus auf Ketten von Zielen, diese Untersuchung würde Fokus auf Transitionen von Zielen erweitern
-
+  -  siehe [transitions of aims](#chain-transitions): wir schauen uns Übergänge von Zielen (aims) von chain-to-chain als transition an. Dies ermöglicht das erstellen von Netzwerkanalysen und Markov-Ketten, um die Übergangswahrscheinlichkeiten zwischen verschiedenen Therapiezielen (aims) zu modellieren.
+ - dabei ist Eingrenzung auf relevante aims notwendig (chain aims with 5% occurance), da sich Transitionsmöglichkeiten potenzieren (n!) 
+ - dadurch sind Netzwerke darstellbar, wie Ziele ineinander übergehen : siehe [chain transition network](#transition-network). Es zeigt sich, dass Ziele aus den Bereichen "eye contact" und "action planning" häufig miteinander verbunden sind, während Ziele aus dem Bereich "expressive language" und "passive vocabulaty" eher isoliert auftreten.
+ - dies dann mit Markov Ketten weiter quantifiziert werden: siehe [discrete markov chain analysis](#discrete-markov-chain). Es zeigt sich, dass Ziele aus den Bereichen "eye contact" und "action planning" eine hohe Übergangswahrscheinlichkeit zueinander haben, während Ziele aus dem Bereich "expressive language" eher isoliert auftreten.
+ - zu diskutieren. Sollen diese Netzwerke zwischen Gruppen verglichen werden: siehe [transition comparison](#transition-comparison). Beispielsweise zwischen den [Start Clustern](#transitions-cluster) oder [Therapiefortschritt](#transition-session)
+  
 
 ## research aims 
 
@@ -150,24 +163,30 @@ analysis of the session data in the [A-FFIP randomized-controlled trial](https:/
 4. removed chains length < 2
 5. chain analysis restricted to three most common dev areas --> [chain analysis restricted](#chain-analysis-restricted)
 6. alternative models to LMM explored --> [Bayesian Ordinal Mixed Models](#Bayesian-ordinal)
+7. transform mastery for Bayesian analysis
+  
+  
+### June 2026
+
+  - model transitions of aims between chains
+  - exclude low occurances aims for transitions
+  - LMM for last session in chain
+  - Markov chains for chain transitions
+  - network models for transitions
   
 ## TODO
 
-  - model transitions of aims between chains
-  - discuss: exclude low occurances aims (focus on prevalent aims)
-  - LMM for last session in chain
-  - transform mastery for Bayesian analysis (done?)
-  - Markov chains for chain transitions?
-  - expert level analysis for chains?
+  - implement semi Makrov model that considers session length or time between sessions
+  - covariates on the transitions
+  
   	
-
-
 # raw data
 
-- loads the data
 - based on IMBI data set (release: July 2023)
 
 ## data load
+
+- loads the data sets for session and therapy data, demographics, IQ, migration info, socioeconomic status, and autism symptoms. 
 
 ```{r load data}
 
@@ -583,7 +602,9 @@ print(paste0('proportion of therapy session after first lockdown (22/03/20): ',
 
 # sample description
 
-see [sample description](#descriptive-table). Excludes particitpants with less than 10 sessions (n=2). Participants have different [number of sessions](#session-numbers)
+- see [sample description](#descriptive-table) 
+- excludes particitpants with less than 10 sessions (n=2) 
+- participants have different [number of sessions](#session-numbers)
 
 ## exclude participants
 
@@ -680,7 +701,7 @@ df_sample_numeric %>%
 
 # therapy aims overview {#therapy-aims}
 
-- can be more than one per session
+- multiple aims (1-7) per session
 - encoded by "aimno" variable (e.g. 10.6.2.1)
   - first or two numbers define developmental area (e.g. 9, 10.2-10.6)
   - first three numbers define specific therapy aim (e.g. 10.6.2) --> defines the [therapy aim chains](#aim-chains)
@@ -689,7 +710,7 @@ df_sample_numeric %>%
 ## developmental area
 
 - Entwicklungsbereiche (9.2 - 10.6)
-- can be more than one per session
+- therapy aims are assigned to developmental areas based on the first two numbers of the aimno variable 
 
 ```{r developmental area}
 
@@ -817,8 +838,6 @@ df_firstaims<-rbindlist(df_firstaims)
 
 ## first aims overview
 
-- top 3: eye contact (10.2.1), imitation (9.4), gaze following (9.3)
-
 ```{r first aims across number of aims}
 
 #table overview
@@ -850,8 +869,6 @@ table_aimspart <- data.frame(t(table_aimspart))
 names(table_aimspart) <- paste('goal', seq_along(table_aimspart))
 row.names(table_aimspart) <- substr(row.names(table_aimspart), 2, nchar(row.names(table_aimspart)))
 
-print('discussion point: Factor in the number of aims per participant?')
-
 table_aimspart[order(table_aimspart[,1]),] %>%
   kbl(caption = "aims in the first session after introdcution by participant") %>%
   kable_classic(full_width = F, html_font = "Cambria") 
@@ -859,6 +876,8 @@ table_aimspart[order(table_aimspart[,1]),] %>%
 ```
 
 ## time till first aims
+
+- time in days from first session to first session with aims (after introduction)
 
 ```{r, time span to first session}
 
@@ -910,7 +929,9 @@ df_date_first_session %>%
 
 ## sessions till first aims
 
-- Berechnung der Anzahl der Therapiesitzungen, die Kind gebraucht hat, bis an Therapiezielen überhaupt gearbeitet werden kann - Kriterium: Anzahl der „A“-Sitzungen zu Beginn der Therapie“
+- Berechnung der Anzahl der Therapiesitzungen, die Kind gebraucht hat, bis an Therapiezielen überhaupt gearbeitet werden kann 
+- Kriterium: Anzahl der „A“-Sitzungen zu Beginn der Therapie“
+- A-Sitzungen = Einführungssitzungen, in denen an keinen Therapie-Zielen gearbeitet wird, sondern die Therapieeinführung, Diagnostik, Aufbau der therapeutischen Beziehung etc. im Vordergrund stehen
 
 ```{r first session as therapy session}
 
@@ -949,7 +970,6 @@ table(outlier_sessions2$thcg)
 
 - which factors influence the start of working on the first therapy aims
 - consider age, gender, parental education, migration status, corona, IQ, SES
-
 - for non-parametric testing: age, IQ, and lockdown have an effect on session number
   - age: spearman correlation: rho = -0.31, p = .014
   - IQ: spearman correlation: rho = -0.26, p = .045
@@ -996,6 +1016,9 @@ with(df_firstaims_uniqueID,cor.test(ses_edumean_t1, sessno, method = "spearman",
 
 ```{r first aim clustering, fig.width=10, fig.height=6}
 
+print('5 clusters combine language aims better into distinct cluster')
+print('3 clusters are more representative of data structure and more balanced in terms of cluster sizes')
+
 # Cut into clusters (e.g., 3 clusters)
 number_of_clusters<-3
 print(paste('assumed number of clusters:',number_of_clusters))
@@ -1020,12 +1043,26 @@ table(round(gower_dist,2))
 
 # Perform hierarchical clustering
 hc <- hclust(gower_dist, method = "ward.D2")
+
+# Scree plot to determine optimal number of clusters
+# Extract the distances and create scree plot
+last <- hc$height[length(hc$height) - (1:min(10, length(hc$height)-1)) + 1]
+last_rev <- rev(last)
+idxs <- factor(1:length(last_rev), levels = 1:length(last_rev))
+
+plot(idxs, last_rev, type = "b", main = "Scree Plot - Elbow Method",
+     xlab = "Number of Clusters", ylab = "Distance / Height",
+     cex.main = 1.2, cex.lab = 1.1)
+abline(v = number_of_clusters, col = "red", lty = 2, lwd = 2)
+text(number_of_clusters, max(last_rev) * 0.95, 
+     paste("Selected:", number_of_clusters, "clusters"), 
+     col = "red", pos = 4, cex = 0.9)
+
 clusters <- cutree(hc, k = number_of_clusters)
 
 # Add cluster labels to your data
 table_aimspart_factor$start_cluster <- clusters
 
-print('5 clusters combine language aims better into distinct cluster')
 
 # table_aimspart_factor[order(table_aimspart_factor[,8]),] %>%
 #   kbl(caption = "aims in the first session and starting CLUSTERS after introduction by participant") %>%
@@ -1055,7 +1092,7 @@ df_trial<-merge(df_trial,df_firstaims_uniqueID,by='id')
 
 ## describe clusters {#cluster-first-aims-outcome}
 
-- 5 most common aims in different clusters for first therapy aims
+- five most common aims in different clusters for first therapy aims
 - labels the clusters 
 
 ```{r describe initial clusters}
@@ -1142,15 +1179,14 @@ ggplot(df_trial,aes(x=sessno,fill=expert_level))+geom_bar()+facet_wrap(~dev_area
 
 ```
 
-# chains of therapy aims {#aim-chains}
+# chains of aims {#aim-chains}
 
-- identify chains of consecutive working on specific therapy aims 
+- identify chains of therapy aims on which is wokred on in consecutive sessions
 - at least 2 consecutive sessions with one aim should be later considered
 
 ## chain functions
 
 - code below define functions to extract chains of aims
-- use "show" to examine code
 
 ```{r chain functions}
 
@@ -1289,6 +1325,10 @@ df_chains<-df_chains[df_chains$chain_length>1,]
 
 ## chain description
 
+- table of chain lengths
+- histogram of mean chain length
+- table of mean chain length by aim (with occurances)
+
 ```{r chain description}
 
 table(df_chains$chain_length) %>%
@@ -1311,6 +1351,9 @@ table_chainlength %>%
 ```
 
 ## chain visualization
+
+- when do chains occur across therapy sessions?
+- visualize chain length across sessions and developmental areas
 
 ```{r chain visualization}
 
@@ -1339,6 +1382,9 @@ ggplot(df_chains[!df_chains$dev_area_char %in% c('A','B')],
   - achieve ("Zielebene gemeistert (0-2)")
   - mastery ("aim expert level (0-2)")
 - only consider chains not disrupted by lockdown; complete before or after
+- control for age, gender, IQ, and lockdown status
+- linear mixed models with random intercept for participant ID (assuming metric outcome variables and non-normal distribution of residuals))
+- Bayesian ordinal mixed models with random intercept for participant ID (assuming ordinal outcome variables and non-normal distribution of residuals))
 
 ```{r chain analysis data inspection}
 
@@ -1349,8 +1395,8 @@ desc<-do.call(rbind,desc)
 
 desc_tbl <- desc %>%
   tibble::rownames_to_column("variable") %>%
-  select(variable, n, mean, sd, median, min, max, skew, kurtosis) %>%
-  mutate(across(where(is.numeric), ~ round(.x, 2)))
+  dplyr::select(variable, n, mean, sd, median, min, max, skew, kurtosis) %>%
+  dplyr::mutate(across(where(is.numeric), ~ round(.x, 2)))
 
 description<-c('predictor','outcome: "Zielebene gemeistert"','outcome: "Ausmaß Hilfestellung"','outcome: "Expertenlevel/einzelne Ziele"')
 
@@ -1445,7 +1491,7 @@ qqline(resid(lmm))
 
 ```
 
-#### LMMM mastery {#linear-mixed-mastery}
+#### LMM mastery {#linear-mixed-mastery}
 
 ```{r chain analysis frequentist mastery}
 
@@ -1567,11 +1613,11 @@ exp(-0.02)
 
 # transitions of aims {#chain-transitions}
 
-- aim chains occur across the therapy, we want to extract aim transitions between chains
+- aim chains occur across the therapy, we extract aim transitions between chains
 - retrieves the aim of the next and previous chain
 - previous and next chains are defined by lower or higher therapy session number in the last session of a chain
 
-```{r add prev next chains}
+```{r extract transitions from chains}
 # add previous / next chain information per participant
 # order chains per participant by starting session and compute lag/lead
 df_chains <- df_chains %>%
@@ -1596,10 +1642,30 @@ df_chains <- df_chains %>%
 - general transitions across all participants
 - overall to many transitions, this requires filtering below
 
-```{r chain transition matrix}
+```{r chain transition matrix, results='asis'}
 # create transition matrix: current aim -> next aim
 # only include chains with non-NA next_chain_aim (i.e., exclude last chains per participant)
 df_transitions <- df_chains[!is.na(df_chains$next_chain_aim), ]
+
+#total transitions
+table_out <- sort(table(df_transitions$next_chain_aim), decreasing = TRUE) %>%
+  kbl(caption = "most common aims in chains with exogenous (out) transitions", format = "html") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+table_in <- sort(table(df_transitions$prev_chain_aim), decreasing = TRUE) %>%
+  kbl(caption = "most common aims in chains with endogenous (in) transitions", format = "html") %>%
+  kable_classic(full_width = F, html_font = "Cambria")
+
+# HTML flexbox to display tables side by side in markdown
+cat('<div style="display: flex; gap: 30px; justify-content: center; flex-wrap: wrap;">\n')
+cat('<div style="flex: 0 0 auto;">\n')
+cat(table_out, sep = "\n")
+cat('\n</div>\n')
+cat('<div style="flex: 0 0 auto;">\n')
+cat(table_in, sep = "\n")
+cat('\n</div>\n')
+cat('</div>\n')
+
 
 # build transition matrix (count)
 transition_matrix_count <- table(df_transitions$aims, df_transitions$next_chain_aim)
@@ -1653,6 +1719,12 @@ cat("Percentage of chains that switch to different aim:",
 ```{r transition heatmap, fig.width=12, fig.height=12}
 
 # rebuild count and proportion matrices from filtered data
+# ensure no missing aims remain before computing the transition matrix
+df_transitions_filtered <- df_transitions_filtered[
+  !is.na(df_transitions_filtered$aims) &
+  !is.na(df_transitions_filtered$next_chain_aim),
+]
+
 transition_matrix_count <- table(df_transitions_filtered$aims, df_transitions_filtered$next_chain_aim)
 transition_matrix_prop  <- prop.table(transition_matrix_count, margin = 1)
 
@@ -1661,16 +1733,23 @@ transition_matrix_long <- as.data.frame.table(transition_matrix_count)
 names(transition_matrix_long) <- c('from_aim', 'to_aim', 'count')
 transition_matrix_long$proportion <- as.data.frame.table(transition_matrix_prop)[, 3]
 transition_matrix_long <- transition_matrix_long[
-  !is.na(transition_matrix_long$from_aim) & !is.na(transition_matrix_long$to_aim), ]
+  !is.na(transition_matrix_long$from_aim) &
+  !is.na(transition_matrix_long$to_aim) &
+  transition_matrix_long$from_aim != 'NA' &
+  transition_matrix_long$to_aim != 'NA',
+]
 
 # order rows and columns by total occurrences (descending)
-aim_order_overall <- names(sort(aim_counts[names(aim_counts) %in% common_aims],
-                                decreasing = TRUE))
+aim_order_overall <- names(sort(
+  aim_counts[names(aim_counts) %in% common_aims & !is.na(names(aim_counts))],
+  decreasing = TRUE
+))
 transition_matrix_long <- transition_matrix_long |>
   dplyr::mutate(
     from_aim = factor(from_aim, levels = aim_order_overall),
     to_aim   = factor(to_aim,   levels = aim_order_overall)
-  )
+  ) |>
+  dplyr::filter(!is.na(from_aim) & !is.na(to_aim))
 
 # top 10 most prevalent transitions weighted by count * proportion
 # (rewards transitions that are both frequent and conditionally probable)
@@ -1699,18 +1778,23 @@ ggplot(transition_matrix_long, aes(x = to_aim, y = from_aim, fill = proportion))
   geom_tile(color = 'white') +
   scale_fill_gradient(low = 'white', high = 'steelblue') +
   geom_text(aes(label = count), size = 3) +
-  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_y_discrete(limits = rev(levels(transition_matrix_long$from_aim))) +
   labs(title = paste('Chain Transitions (aims with >',
                      minimal_number_of_occurances,
-                     'occurrences) From current aim (row) to next aim (column)',
-       x = 'Next Aim', y = 'Current Aim', fill = 'transition likelihood',
-       caption = 'Grey marked rows indicate that transitions to other aims were rare with less than 50 occurrences.'))
+                     'occurrences) From current aim (row) to next aim (column)'),
+       x = 'Next Aim', y = 'Current Aim', fill = 'transition likelihood')+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) 
+  
+
 
 ```
 
-## chain transition network
+## chain transition network {#transition-network}
 
-```{r chain transition network, message=FALSE, warning=FALSE, fig.width=10, fig.height=9}
+- visualize transitions as a directed network graph
+- nodes = aims, edges = transitions (weighted by proportion)
+
+```{r chain transition network, message=FALSE, warning=FALSE, fig.width=11, fig.height=9}
 
 # thresholds
 min_prop <- 0.1
@@ -1725,8 +1809,8 @@ edges <- transition_matrix_long |>
     as.character(from_aim) %in% frequent_aims,
     as.character(to_aim) %in% frequent_aims
   ) |>
-  mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
-  select(from, to, weight = proportion, count)
+  dplyr::mutate(from = as.character(from_aim), to = as.character(to_aim)) |>
+  dplyr::select(from, to, weight = proportion, count)
 
 # lookup: aim -> developmental area (using full descriptive labels)
 aim_dev_lookup <- df_chains |>
@@ -1769,7 +1853,296 @@ ggraph(graph, layout = "fr") +
   theme_graph()
 ```
 
-## transitions between clusters
+## discrete-time Markov model {#discrete-markov-chain}
+
+- build a discrete-time Markov chain based on the observed transitions between aims
+- analyze key properties of the Markov chain (stationary distribution, irreducibility, mean first passage times, etc.)
+- this provides network metrics that can be compared between network (e.g. for different therapy progression, clusters of participants, etc.)
+
+```{r transition-discrtete-markov-model, message=FALSE, warning=FALSE}
+
+# prepare filtered transitions
+df_transitions_markov <- df_transitions_filtered |>
+  dplyr::filter(!is.na(aims), !is.na(next_chain_aim))
+
+# build a square transition matrix using the full set of observed states
+states <- sort(unique(c(
+  as.character(df_transitions_markov$aims),
+  as.character(df_transitions_markov$next_chain_aim)
+)))
+
+tm_count <- as.matrix(table(
+  factor(df_transitions_markov$aims, levels = states),
+  factor(df_transitions_markov$next_chain_aim, levels = states)
+))
+
+tm_prop <- prop.table(tm_count, margin = 1)
+# explicitly convert the prop.table result to a numeric matrix
+if (inherits(tm_prop, "table")) {
+  tm_prop <- matrix(
+    as.numeric(tm_prop),
+    nrow = nrow(tm_count),
+    ncol = ncol(tm_count),
+    dimnames = dimnames(tm_count)
+  )
+} else {
+  tm_prop <- as.matrix(tm_prop)
+}
+
+# if any state has no outgoing transitions, drop it from the Markov model
+zero_outgoing <- rowSums(tm_prop, na.rm = TRUE) == 0
+if (any(zero_outgoing)) {
+  drop_states <- states[zero_outgoing]
+  warning("Dropping state(s) with no outgoing transitions for Markov model: ",
+          paste(drop_states, collapse = ", "))
+  tm_prop <- tm_prop[!zero_outgoing, !zero_outgoing, drop = FALSE]
+  states <- states[!zero_outgoing]
+}
+
+# replace any NaN values with zeros after prop.table
+tm_prop[is.na(tm_prop)] <- 0
+
+# build Markov chain object
+mchain <- methods::new(
+  "markovchain",
+  states = states,
+  transitionMatrix = as.matrix(tm_prop),
+  name = "AimTransitionChain"
+)
+
+# key metrics
+stationary_distribution <- markovchain::steadyStates(mchain)
+irreducible <- markovchain::is.irreducible(mchain)
+periods <- markovchain::period(mchain)
+recurrent_classes <- markovchain::recurrentClasses(mchain)
+transient_states <- markovchain::transientStates(mchain)
+
+# mean first passage times if irreducible
+mean_first_passage <- if (irreducible) {
+  markovchain::meanFirstPassageTime(mchain)
+} else {
+  NULL
+}
+
+# display results
+
+#model overview
+# mchain
+
+#chain is irreducible if every state can be reached from every other state (not the case here)
+#thus there is only one period = 1
+
+#It quantifies how quickly one aim transitions to another on average
+#mean_first_passage
+
+# transition matrix
+P <- as.matrix(mchain@transitionMatrix)
+states <- states(mchain)
+
+# stationary distribution: long-run probability of being in each state
+stationary <- as.numeric(markovchain::steadyStates(mchain))
+names(stationary) <- states
+
+# self-loop probability: probability the chain stays in the same state
+self_loop <- diag(P)
+names(self_loop) <- states
+
+# mean recurrence time: expected number of steps to return to the same state
+# interpretation: lower values = state is revisited more frequently
+mean_recurrence <- 1 / stationary
+names(mean_recurrence) <- states
+
+# entropy of the outgoing distribution from each state
+# interpretation: higher entropy = more uncertain / diffuse next-state behavior
+entropy <- apply(P, 1, function(p) {
+  p <- p[p > 0]
+  -sum(p * log(p, base = 2))
+})
+names(entropy) <- states
+
+# incoming flow in steady state: long-run share of transitions into each state
+incoming_flow <- as.numeric(stationary %*% P)
+names(incoming_flow) <- states
+
+# recurrent/transient state classification
+recurrent_states <- unique(unlist(recurrent_classes))
+state_type <- ifelse(states %in% recurrent_states, "recurrent", "transient")
+
+state_metrics <- data.frame(
+  state = states,
+  type = state_type,
+  stationary = round(stationary,3),
+  self_loop = round(self_loop,3),
+  mean_recurrence = round(mean_recurrence,3),
+  entropy = round(entropy,3),
+  incoming_flow = round(incoming_flow,3),
+  stringsAsFactors = FALSE
+)
+
+# optionally sort by stationary probability
+state_metrics <- state_metrics[order(-state_metrics$stationary), ]
+
+state_metrics %>%
+  kbl(caption = "Transition Markov Chain: core metrics of common chain aims", row.names = FALSE) %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria") %>%
+  footnote(general = c(
+    "type: is the state recurring",
+    "stationary: long-run probability of being in each state",
+    "self-loop: probability the chain stays in the same state",
+    "mean recurrence time: expected number of steps to return to the same state",
+    "entropy:  higher entropy = more uncertain / diffuse next-state behavior",
+    "incoming_flow: long-run share of transitions into each state"
+))
+
+
+# mean first passage times: expected steps to reach each target state
+mfp <- markovchain::meanFirstPassageTime(mchain)
+
+round(mfp, 2) %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("from_state") %>%
+  tidyr::pivot_longer(-from_state, names_to = "to_state", values_to = "mean_first_passage") %>%
+  filter(mean_first_passage > 0) %>%
+  arrange(mean_first_passage) %>%
+  kbl(caption = "Mean First Passage Times: expected steps to reach each target state from each starting state") %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+
+```
+
+## semi-Markov model
+
+- also consider chain length in addition to aim transitions
+- build a semi-Markov model that incorporates both the aim transitions and the distribution of chain lengths
+
+```{r transition-semi-markov-model only sojourns, message=FALSE, warning=FALSE}
+
+# prepare filtered transitions with sojourn lengths
+df_transitions_markov <- df_transitions_filtered |>
+  dplyr::filter(!is.na(aims), !is.na(next_chain_aim), !is.na(chain_length))
+
+states <- sort(unique(c(
+  as.character(df_transitions_markov$aims),
+  as.character(df_transitions_markov$next_chain_aim)
+)))
+
+# discrete transition probabilities
+tm_count <- as.matrix(table(
+  factor(df_transitions_markov$aims, levels = states),
+  factor(df_transitions_markov$next_chain_aim, levels = states)
+))
+
+tm_prop <- prop.table(tm_count, margin = 1)
+if (inherits(tm_prop, "table")) {
+  tm_prop <- matrix(
+    as.numeric(tm_prop),
+    nrow = nrow(tm_count),
+    ncol = ncol(tm_count),
+    dimnames = dimnames(tm_count)
+  )
+} else {
+  tm_prop <- as.matrix(tm_prop)
+}
+
+tm_prop[is.na(tm_prop)] <- 0
+
+# sojourn summaries for each origin-destination pair
+sojourn_summary <- df_transitions_markov |>
+  dplyr::group_by(aims, next_chain_aim) |>
+  dplyr::summarise(
+    n = dplyr::n(),
+    mean_chain_length = round(mean(chain_length, na.rm = TRUE), 2),
+    sd_chain_length = round(sd(chain_length, na.rm = TRUE), 2),
+    .groups = "drop"
+  ) |>
+  dplyr::mutate(
+    transition_prob = round(tm_prop[cbind(
+      as.integer(factor(aims, levels = states)),
+      as.integer(factor(next_chain_aim, levels = states))
+    )], 3)
+  ) |>
+  dplyr::arrange(dplyr::desc(transition_prob))
+
+sojourn_summary %>%
+  kbl(caption = "Semi-Markov kernel: transition probability and average sojourn length by origin (aims) and destination (next_chain_aim)") %>%
+  kable_classic(full_width = FALSE, html_font = "Cambria")
+
+
+```
+
+```{r transition-semi-markov-model full model, message=FALSE, warning=FALSE, eval=FALSE }
+
+# SemiMarkov package expects character state codes and character mtrans entries
+n_states <- length(states)
+  
+# build mtrans matrix with distribution codes first
+# mtrans[i,j] = FALSE (no transition), "E" (Exponential), or "W"/"EW" (other distributions)
+# Diagonal must be FALSE (no self-transitions in semi-Markov)
+mtrans <- matrix(FALSE, nrow = n_states, ncol = n_states)
+rownames(mtrans) <- states
+colnames(mtrans) <- states
+
+min_number_of_occurances <- 20  # minimum transitions to consider fitting a distribution
+for (i in seq_along(states)) {
+  for (j in seq_along(states)) {
+    if (i != j && tm_count[i, j] >= min_number_of_occurances) {  # increase threshold to ensure enough data for fitting
+      # Use "E" for Exponential distribution (faster fitting, memoryless sojourns)
+      mtrans[i, j] <- "E"
+    }
+  }
+}
+
+# Filter data to only include transitions that are allowed in mtrans
+# (avoids "All observed transitions in data must be specified in matrix 'mtrans'" error)
+allowed_transitions <- which(mtrans == "E", arr.ind = TRUE)
+allowed_pairs <- paste(states[allowed_transitions[, 1]], states[allowed_transitions[, 2]])
+df_semi_filtered <- df_transitions_markov[
+  paste(df_transitions_markov$aims, df_transitions_markov$next_chain_aim) %in% allowed_pairs,
+]
+
+# Also filter states to only those that appear in filtered data
+states_used <- sort(unique(c(
+  as.character(df_semi_filtered$aims),
+  as.character(df_semi_filtered$next_chain_aim)
+)))
+
+# Update mtrans to match filtered states
+mtrans <- mtrans[states_used, states_used]
+states <- states_used
+n_states <- length(states)
+
+cat("Semi-Markov model: using", nrow(df_semi_filtered), "transitions,", n_states, "states\n")
+
+# Create df_semi from filtered data
+df_semi <- data.frame(
+  id = as.numeric(factor(df_semi_filtered$id)),
+  state.h = as.character(df_semi_filtered$aims),
+  state.j = as.character(df_semi_filtered$next_chain_aim),
+  time = as.numeric(df_semi_filtered$chain_length)
+)
+
+#fit the semi-markov model  
+fit_semi <- SemiMarkov::semiMarkov(
+  data = df_semi,
+  states = states,
+  mtrans = mtrans,
+  control = list(
+    rho = 1,           # default
+    outer.iter = 100,  # reduce from default ~400
+    inner.iter = 50,   # reduce inner loop
+    delta = 1e-4,      # relax tolerance slightly (default 1e-7)
+    tol = 1e-4         # relax absolute tolerance
+  )
+)
+  
+print(summary(fit_semi))
+ 
+```
+
+# transition comparison {#transition-comparison}
+
+- work in progress
+
+## transitions between starting clusters {#transitions-cluster}
 
 ```{r cluster-prep, message=FALSE, warning=FALSE}
 library(ggraph)
@@ -1964,8 +2337,7 @@ patchwork::wrap_plots(net_plots, nrow = number_of_clusters) +
 
 ```
 
-
-# transition network comparison 
+## transition network comparison 
 
 ```{r centrality-comparison, message=FALSE, warning=FALSE, fig.width=12, fig.height=7}
 
@@ -2067,7 +2439,7 @@ all_centrality |>
   )
 ```
 
-## transitions with session progression
+## transitions with session progression {#transition-session}
 
 - divide session to early (1-30), mid (31-60), late (61-90) therapy
 - compare networks
@@ -2231,18 +2603,3 @@ patchwork::wrap_plots(net_plots, nrow = length(sess_cats)) +
 
 ```
 
-- clustern based on clusters and quality of clusters
-- Prüfung der weiteren Angaben der Therapieziel im Verlauf der Therapie -> Stabilität bzw. Wechsel in andere Kategorie.
-
-```{r comparing clusters}
-
-anova(lmer(chain_length~start_cluster+(1|id),data=df_chains))
-anova(lmer(chain_achieve_last~start_cluster+(1|id),data=df_chains))
-anova(lmer(chain_help_last~start_cluster+(1|id),data=df_chains))
-
-anova(lmer(chain_help_last~start_cluster*chain_length+(1|id),data=df_chains))
-
-hist(df_chains$chain_first_session)
-
-
-```
